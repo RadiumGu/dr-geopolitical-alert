@@ -45,7 +45,31 @@ Traditional DR monitoring only detects failures after they happen. This system a
 GPRI = Baseline + Σ(Signal_i × Weight_i)    capped at 100
 ```
 
-Each of the 34 Regions has a **static baseline** reflecting inherent geopolitical risk (e.g., Israel=25, Singapore=2). Real-time signals add to this baseline.
+### Baseline Score
+
+Each Region has a **static baseline** (0–25) reflecting inherent geopolitical risk. Baselines are pre-assigned based on 5 factors:
+
+| Factor | Examples |
+|--------|----------|
+| Geopolitical tension | Active conflicts, territorial disputes, international sanctions |
+| Cyber sovereignty risk | Internet censorship, cross-border data regulations |
+| Infrastructure fragility | Power grid stability, submarine cable dependency |
+| Natural disaster exposure | Seismic zones, typhoon/hurricane paths, flood risk |
+| Legal/compliance complexity | Data protection laws, export controls |
+
+**Baseline by Region** (sorted high → low):
+
+| Baseline | Regions |
+|----------|---------|
+| 25 | 🇮🇱 il-central-1 (Tel Aviv) |
+| 20 | 🇦🇪 me-central-1 (Dubai) |
+| 18 | 🇧🇭 me-south-1 (Bahrain) |
+| 15 | 🇿🇦 af-south-1 (Cape Town) |
+| 12 | 🇭🇰 ap-east-1 (Hong Kong) |
+| 10 | 🇰🇷 ap-east-2, 🇮🇳 ap-south-1/2, 🇮🇩 ap-southeast-3, 🇧🇷 sa-east-1, 🇲🇽 mx-central-1 |
+| 8–9 | 🇹🇭 ap-southeast-6, 🇦🇺 ap-southeast-4, 🇳🇿 ap-southeast-5, 🇲🇾 ap-southeast-7, 🇮🇹 eu-south-1, 🇪🇸 eu-south-2 |
+| 5–6 | 🇯🇵 ap-northeast-1/3, 🇰🇷 ap-northeast-2 |
+| 2–4 | 🇺🇸 us-east-1/2, us-west-1/2, 🇨🇦 ca-central-1, ca-west-1, 🇩🇪 eu-central-1, 🇬🇧 eu-west-2, 🇫🇷 eu-west-3, 🇸🇪 eu-north-1, 🇦🇺 ap-southeast-2, 🇨🇭 eu-central-2, 🇮🇪 eu-west-1, 🇸🇬 ap-southeast-1 |
 
 ### Risk Levels
 

@@ -44,7 +44,33 @@
 GPRI = 基线分 + Σ(信号_i × 权重_i)    上限 100
 ```
 
-34 个 Region 各有一个**静态基线分**反映固有地缘政治风险（如 Israel=25, Singapore=2）。实时信号在基线上叠加。
+34 个 Region 各有一个**静态基线分**反映固有地缘政治风险。实时信号在基线上叠加。
+
+### 基线分说明
+
+每个 Region 的基线分（0–25）根据所在国家/地区的固有风险预设，评估维度：
+
+| 评估因素 | 说明 |
+|---------|------|
+| 地缘政治紧张度 | 武装冲突、领土争端、国际制裁 |
+| 网络主权风险 | 互联网审查、跨境数据管制 |
+| 基础设施脆弱性 | 电网稳定性、海缆依赖度 |
+| 自然灾害暴露 | 地震带、台风路径、洪灾风险 |
+| 法律合规复杂度 | 数据保护法、出口管制 |
+
+**各 Region 基线分**（从高到低）：
+
+| 基线 | Region |
+|------|--------|
+| 25 | 🇮🇱 il-central-1 (Tel Aviv) |
+| 20 | 🇦🇪 me-central-1 (Dubai) |
+| 18 | 🇧🇭 me-south-1 (Bahrain) |
+| 15 | 🇿🇦 af-south-1 (Cape Town) |
+| 12 | 🇭🇰 ap-east-1 (Hong Kong) |
+| 10 | 🇰🇷 ap-east-2, 🇮🇳 ap-south-1/2, 🇮🇩 ap-southeast-3, 🇧🇷 sa-east-1, 🇲🇽 mx-central-1 |
+| 8–9 | 🇹🇭 ap-southeast-6, 🇦🇺 ap-southeast-4, 🇳🇿 ap-southeast-5, 🇲🇾 ap-southeast-7, 🇮🇹 eu-south-1, 🇪🇸 eu-south-2 |
+| 5–6 | 🇯🇵 ap-northeast-1/3, 🇰🇷 ap-northeast-2 |
+| 2–4 | 🇺🇸 us-east-1/2, us-west-1/2, 🇨🇦 ca-central-1, ca-west-1, 🇩🇪 eu-central-1, 🇬🇧 eu-west-2, 🇫🇷 eu-west-3, 🇸🇪 eu-north-1, 🇦🇺 ap-southeast-2, 🇨🇭 eu-central-2, 🇮🇪 eu-west-1, 🇸🇬 ap-southeast-1 |
 
 ### 风险等级
 

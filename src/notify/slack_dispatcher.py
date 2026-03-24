@@ -13,9 +13,29 @@ import re
 import urllib.request
 from typing import Any
 
+import boto3
+
 logger = logging.getLogger(__name__)
 
-SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+_ssm = boto3.client("ssm")
+
+
+def _get_webhook_url() -> str:
+    """Retrieve the Slack webhook URL from SSM Parameter Store at runtime.
+
+    Reads SLACK_WEBHOOK_SSM_PATH from the environment and fetches the
+    SecureString parameter value.  Returns empty string on any error.
+    """
+    path = os.environ.get("SLACK_WEBHOOK_SSM_PATH", "")
+    if not path:
+        logger.warning("SLACK_WEBHOOK_SSM_PATH not set")
+        return ""
+    try:
+        resp = _ssm.get_parameter(Name=path, WithDecryption=True)
+        return resp["Parameter"]["Value"]
+    except Exception as exc:
+        logger.error("Failed to fetch SSM parameter %s: %s", path, exc)
+        return ""
 
 LEVEL_EMOJI: dict[str, str] = {
     "GREEN": "🟢",
@@ -205,19 +225,23 @@ def _build_blocks(parsed: dict[str, str]) -> list[dict[str, Any]]:
 def _post_to_slack(payload: dict[str, Any]) -> None:
     """POST a JSON payload to the Slack Incoming Webhook.
 
+    Fetches the webhook URL from SSM Parameter Store at invocation time so
+    the URL is never stored in environment variables or CloudFormation.
+
     Args:
         payload: Slack message payload dict.
 
     Raises:
         RuntimeError: If the webhook returns a non-200 status code.
     """
-    if not SLACK_WEBHOOK_URL:
-        logger.warning("SLACK_WEBHOOK_URL not set, skipping notification")
+    webhook_url = _get_webhook_url()
+    if not webhook_url:
+        logger.warning("Slack webhook URL unavailable, skipping notification")
         return
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        SLACK_WEBHOOK_URL,
+        webhook_url,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST",

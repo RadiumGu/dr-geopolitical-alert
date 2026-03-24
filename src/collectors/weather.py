@@ -2,6 +2,7 @@
 
 Data sources (all free, no API key):
   - Open-Meteo: 72h weather forecast per Region coordinate
+    Batch API: pass all coordinates in one request to reduce HTTP round-trips.
   - USGS Earthquake: M>=4.0 events within 200km of Region
   - GDACS: Active orange/red disaster alerts
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -42,21 +44,30 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# ── Open-Meteo ──
+# ── Open-Meteo batch ──
 
-def _fetch_weather(region: RegionConfig) -> dict[str, Any]:
-    """Fetch 72h forecast for a Region's coordinates."""
+def _fetch_all_weather(regions: list[RegionConfig]) -> list[dict[str, Any]]:
+    """Batch-fetch 72h forecasts for all region coordinates in one HTTP call.
+
+    Open-Meteo supports comma-separated latitude/longitude lists and returns a
+    list of forecast objects (one per coordinate pair).
+    """
+    lats = ",".join(str(r.lat) for r in regions)
+    lons = ",".join(str(r.lon) for r in regions)
     data = get_json(
         "https://api.open-meteo.com/v1/forecast",
         params={
-            "latitude": region.lat,
-            "longitude": region.lon,
+            "latitude": lats,
+            "longitude": lons,
             "hourly": "temperature_2m,precipitation,wind_speed_10m",
             "forecast_days": 3,
             "timezone": "UTC",
         },
     )
-    return data
+    if isinstance(data, list):
+        return data
+    # Single-coordinate response is a plain dict
+    return [data]
 
 
 def _score_weather(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -65,7 +76,6 @@ def _score_weather(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     temps = hourly.get("temperature_2m", [])
     precips = hourly.get("precipitation", [])
     winds = hourly.get("wind_speed_10m", [])
-    times = hourly.get("time", [])
 
     max_temp = max(temps) if temps else 0
     max_precip = max(precips) if precips else 0
@@ -192,59 +202,92 @@ def _score_gdacs(
     return min(score, MAX_SCORE), {"gdacs_alerts": relevant[:3]}
 
 
+# ── Per-region computation ──
+
+def _process_region(
+    region: RegionConfig,
+    weather_data: dict[str, Any],
+    quakes: list[dict[str, Any]],
+    gdacs_alerts: list[dict[str, Any]],
+    now: str,
+) -> SignalRecord:
+    """Compute E-class SignalRecord for a single Region."""
+    w_score, w_detail = _score_weather(weather_data)
+    q_score, q_detail = _score_earthquake(region, quakes)
+    g_score, g_detail = _score_gdacs(region, gdacs_alerts)
+
+    total = min(max(w_score, q_score, g_score), MAX_SCORE)
+    raw_data = {
+        "weather": w_detail,
+        "earthquake": q_detail,
+        "gdacs": g_detail,
+        "sub_scores": {"weather": w_score, "earthquake": q_score, "gdacs": g_score},
+    }
+    logger.info(
+        "Region %s E-score: %d %s",
+        region.code, total, w_detail.get("alerts", []),
+    )
+    return SignalRecord(
+        region=region.code,
+        signal_class=SignalClass.E,
+        score=total,
+        raw_data=raw_data,
+        source="open-meteo+usgs+gdacs",
+        collected_at=now,
+    )
+
+
 # ── Main handler ──
 
 def collect_weather_signals() -> list[SignalRecord]:
     """Collect E-class signals for all Regions. Returns list of records."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Shared data fetched once before per-region processing
     quakes = _fetch_earthquakes()
     gdacs_alerts = _fetch_gdacs()
+
+    # Batch-fetch weather for all regions in a single HTTP request
+    weather_batch: list[dict[str, Any]] = []
+    try:
+        weather_batch = _fetch_all_weather(ALL_REGIONS)
+    except Exception as exc:
+        logger.warning("Open-Meteo batch fetch failed: %s — using empty data", exc)
+        weather_batch = []
+
+    # Pad with empty dicts if the batch response is shorter than expected
+    while len(weather_batch) < len(ALL_REGIONS):
+        weather_batch.append({})
+
     records: list[SignalRecord] = []
 
-    for region in ALL_REGIONS:
-        try:
-            # Weather
-            weather_data = _fetch_weather(region)
-            w_score, w_detail = _score_weather(weather_data)
-
-            # Earthquake
-            q_score, q_detail = _score_earthquake(region, quakes)
-
-            # GDACS
-            g_score, g_detail = _score_gdacs(region, gdacs_alerts)
-
-            # Combine: take max of the three sub-scores (not sum, to avoid overshoot)
-            total = min(max(w_score, q_score, g_score), MAX_SCORE)
-
-            raw_data = {
-                "weather": w_detail,
-                "earthquake": q_detail,
-                "gdacs": g_detail,
-                "sub_scores": {"weather": w_score, "earthquake": q_score, "gdacs": g_score},
-            }
-
-            record = SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.E,
-                score=total,
-                raw_data=raw_data,
-                source="open-meteo+usgs+gdacs",
-                collected_at=now,
-            )
-            records.append(record)
-            logger.info("Region %s E-score: %d %s", region.code, total, raw_data.get("weather", {}).get("alerts", []))
-
-        except Exception as exc:
-            logger.error("Failed to collect weather for %s: %s", region.code, exc)
-            # Write a zero-score record so GPRI engine knows we tried
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.E,
-                score=0,
-                raw_data={"error": str(exc)},
-                source="open-meteo+usgs+gdacs",
-                collected_at=now,
-            ))
+    # Per-region scoring is CPU-bound; run concurrently to keep Lambda warm
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_region = {
+            executor.submit(
+                _process_region,
+                region,
+                weather_batch[i],
+                quakes,
+                gdacs_alerts,
+                now,
+            ): region
+            for i, region in enumerate(ALL_REGIONS)
+        }
+        for future in as_completed(future_to_region):
+            region = future_to_region[future]
+            try:
+                records.append(future.result())
+            except Exception as exc:
+                logger.error("Failed to collect weather for %s: %s", region.code, exc)
+                records.append(SignalRecord(
+                    region=region.code,
+                    signal_class=SignalClass.E,
+                    score=0,
+                    raw_data={"error": str(exc)},
+                    source="open-meteo+usgs+gdacs",
+                    collected_at=now,
+                ))
 
     return records
 

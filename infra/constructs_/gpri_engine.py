@@ -7,6 +7,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_sns as sns,
+    aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -25,8 +26,13 @@ class GpriEngineConstruct(Construct):
         signals_table: dynamodb.Table,
         gpri_table: dynamodb.Table,
         sns_topic: sns.Topic,
+        dlq: sqs.Queue | None = None,
     ) -> None:
         super().__init__(scope, id)
+
+        kwargs = {}
+        if dlq:
+            kwargs["dead_letter_queue"] = dlq
 
         self.fn = lambda_.Function(
             self,
@@ -43,6 +49,7 @@ class GpriEngineConstruct(Construct):
                 "GPRI_TABLE": GPRI_TABLE_NAME,
                 "SNS_TOPIC_ARN": sns_topic.topic_arn,
             },
+            **kwargs,
         )
 
         signals_table.grant_read_data(self.fn)

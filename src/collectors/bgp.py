@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from shared.types import SignalClass, SignalRecord
-from shared.region_config import ALL_REGIONS
+from shared.region_config import ALL_REGIONS, RegionConfig
 from shared.db import put_signal
 from shared.http_client import get_json
 
@@ -30,16 +31,11 @@ MAX_SCORE = 15
 _IODA_URL = "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw"
 _CF_RADAR_URL = "https://api.cloudflare.com/client/v4/radar/bgp/route-leaks/events"
 
-# ISO-2 → IODA entity code (country codes used by IODA)
-# IODA uses ISO 3166-1 alpha-2 directly as entity type=country
 _IODA_ENTITY_TYPE = "country"
 
 
 def _fetch_ioda_signals(iso2: str) -> dict[str, Any]:
-    """Fetch IODA raw signals for a country.
-
-    Returns the latest signal data with scores for BGP, UCSD telescope, and Ping.
-    """
+    """Fetch IODA raw signals for a country."""
     now = datetime.now(timezone.utc)
     from_ts = int((now - timedelta(hours=2)).timestamp())
     until_ts = int(now.timestamp())
@@ -58,16 +54,12 @@ def _fetch_ioda_signals(iso2: str) -> dict[str, Any]:
 
 
 def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """Compute G-class score from IODA signal data.
-
-    Returns (score, detail_dict).
-    """
+    """Compute G-class score from IODA signal data."""
     detail: dict[str, Any] = {"sources": {}}
 
     if not data:
         return 0, detail
 
-    # IODA response structure: {"data": [{datasource, values, ...}]}
     sources_data = data.get("data", [])
     if not sources_data:
         return 0, detail
@@ -80,13 +72,11 @@ def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not values or len(values) < 2:
             continue
 
-        # Values are (timestamp, score) pairs; last is most recent
-        # Look at the last few values to detect drops
         recent = [v[1] for v in values[-6:] if v[1] is not None]
         if len(recent) < 2:
             continue
 
-        baseline = max(recent[:-1])  # max of all but last
+        baseline = max(recent[:-1])
         current = recent[-1]
 
         if baseline == 0:
@@ -139,43 +129,57 @@ def _score_cf_leaks(leaks: list[dict[str, Any]]) -> int:
     return min(3 + len(leaks), 8)
 
 
+def _fetch_country_signals(iso2: str) -> tuple[int, dict[str, Any], int]:
+    """Fetch and score IODA + CF Radar for a single ISO-2 country.
+
+    Returns (ioda_score, ioda_detail, cf_score).
+    """
+    try:
+        ioda_data = _fetch_ioda_signals(iso2)
+        ioda_score, ioda_detail = _score_ioda(ioda_data)
+    except Exception as exc:
+        logger.warning("IODA fetch failed for %s: %s", iso2, exc)
+        ioda_score, ioda_detail = 0, {"error": str(exc)}
+
+    try:
+        leaks = _fetch_cf_radar_leaks(iso2)
+        cf_score = _score_cf_leaks(leaks)
+    except Exception as exc:
+        logger.debug("CF Radar unavailable for %s: %s", iso2, exc)
+        cf_score = 0
+
+    return ioda_score, ioda_detail, cf_score
+
+
 def collect_bgp_signals() -> list[SignalRecord]:
     """Collect G-class signals for all Regions. Returns list of records."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Cache IODA results per ISO-2 to avoid redundant calls for same country
-    ioda_cache: dict[str, tuple[int, dict[str, Any]]] = {}
-    cf_cache: dict[str, int] = {}
+    # Determine unique countries to avoid duplicate HTTP calls
+    unique_iso2 = {r.country for r in ALL_REGIONS}
 
+    # Fetch IODA + CF in parallel per unique country
+    country_cache: dict[str, tuple[int, dict[str, Any], int]] = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_iso2 = {
+            executor.submit(_fetch_country_signals, iso2): iso2
+            for iso2 in unique_iso2
+        }
+        for future in as_completed(future_to_iso2):
+            iso2 = future_to_iso2[future]
+            try:
+                country_cache[iso2] = future.result()
+            except Exception as exc:
+                logger.error("Country signal fetch failed for %s: %s", iso2, exc)
+                country_cache[iso2] = (0, {"error": str(exc)}, 0)
+
+    # Compute per-region records using cached country data
     records: list[SignalRecord] = []
 
     for region in ALL_REGIONS:
         try:
             iso2 = region.country
-
-            # IODA
-            if iso2 not in ioda_cache:
-                try:
-                    ioda_data = _fetch_ioda_signals(iso2)
-                    ioda_cache[iso2] = _score_ioda(ioda_data)
-                except Exception as exc:
-                    logger.warning("IODA fetch failed for %s: %s", iso2, exc)
-                    ioda_cache[iso2] = (0, {"error": str(exc)})
-
-            ioda_score, ioda_detail = ioda_cache[iso2]
-
-            # Cloudflare (optional)
-            if iso2 not in cf_cache:
-                try:
-                    leaks = _fetch_cf_radar_leaks(iso2)
-                    cf_cache[iso2] = _score_cf_leaks(leaks)
-                except Exception as exc:
-                    logger.debug("CF Radar unavailable for %s: %s", iso2, exc)
-                    cf_cache[iso2] = 0
-
-            cf_score = cf_cache[iso2]
-
-            # Combine: take the higher of the two sources
+            ioda_score, ioda_detail, cf_score = country_cache.get(iso2, (0, {}, 0))
             score = min(max(ioda_score, cf_score), MAX_SCORE)
 
             records.append(SignalRecord(

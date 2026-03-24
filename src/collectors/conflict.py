@@ -16,11 +16,12 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from shared.types import SignalClass, SignalRecord
-from shared.region_config import ALL_REGIONS, COUNTRY_TO_REGIONS
+from shared.region_config import ALL_REGIONS, COUNTRY_TO_REGIONS, RegionConfig
 from shared.db import put_signal
 from shared.http_client import get_json
 
@@ -120,49 +121,50 @@ def collect_conflict_signals() -> list[SignalRecord]:
 
     country_series = _build_country_timeseries(events, source_label)
 
+    def _score_region(region: RegionConfig) -> SignalRecord:
+        iso2 = region.country
+        dates = country_series.get(iso2, [])
+
+        cutoff_7d = (today - timedelta(days=7)).isoformat()
+        count_7d = sum(1 for d in dates if d >= cutoff_7d)
+        daily_avg_90d = len(dates) / 90.0
+
+        score = min(_anomaly_score(count_7d, daily_avg_90d), MAX_SCORE)
+        raw_data = {
+            "iso2": iso2,
+            "total_90d": len(dates),
+            "count_7d": count_7d,
+            "daily_avg_90d": round(daily_avg_90d, 3),
+            "anomaly_ratio": round(count_7d / max(daily_avg_90d * 7, 0.001), 2),
+        }
+        logger.info("Region %s A-score: %d (7d=%d, avg=%.2f)", region.code, score, count_7d, daily_avg_90d)
+        return SignalRecord(
+            region=region.code,
+            signal_class=SignalClass.A,
+            score=score,
+            raw_data=raw_data,
+            source=source_label,
+            collected_at=now,
+        )
+
     records: list[SignalRecord] = []
 
-    for region in ALL_REGIONS:
-        try:
-            iso2 = region.country
-            dates = country_series.get(iso2, [])
-
-            # Count events in last 7 days vs 90-day daily average
-            cutoff_7d = (today - timedelta(days=7)).isoformat()
-            count_7d = sum(1 for d in dates if d >= cutoff_7d)
-            daily_avg_90d = len(dates) / 90.0
-
-            score = _anomaly_score(count_7d, daily_avg_90d)
-            score = min(score, MAX_SCORE)
-
-            raw_data = {
-                "iso2": iso2,
-                "total_90d": len(dates),
-                "count_7d": count_7d,
-                "daily_avg_90d": round(daily_avg_90d, 3),
-                "anomaly_ratio": round(count_7d / max(daily_avg_90d * 7, 0.001), 2),
-            }
-
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.A,
-                score=score,
-                raw_data=raw_data,
-                source=source_label,
-                collected_at=now,
-            ))
-            logger.info("Region %s A-score: %d (7d=%d, avg=%.2f)", region.code, score, count_7d, daily_avg_90d)
-
-        except Exception as exc:
-            logger.error("Failed to collect conflict for %s: %s", region.code, exc)
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.A,
-                score=0,
-                raw_data={"error": str(exc)},
-                source=source_label,
-                collected_at=now,
-            ))
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_region = {executor.submit(_score_region, r): r for r in ALL_REGIONS}
+        for future in as_completed(future_to_region):
+            region = future_to_region[future]
+            try:
+                records.append(future.result())
+            except Exception as exc:
+                logger.error("Failed to collect conflict for %s: %s", region.code, exc)
+                records.append(SignalRecord(
+                    region=region.code,
+                    signal_class=SignalClass.A,
+                    score=0,
+                    raw_data={"error": str(exc)},
+                    source=source_label,
+                    collected_at=now,
+                ))
 
     return records
 

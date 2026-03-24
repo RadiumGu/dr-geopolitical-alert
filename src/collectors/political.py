@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
 from shared.types import SignalClass, SignalRecord
-from shared.region_config import ALL_REGIONS
+from shared.region_config import ALL_REGIONS, RegionConfig
 from shared.db import put_signal
 from shared.http_client import get_text
 
@@ -123,38 +124,38 @@ def collect_political_signals() -> list[SignalRecord]:
     except Exception as exc:
         logger.warning("State Dept RSS fetch failed: %s — using static levels", exc)
 
+    def _score_region(region: RegionConfig) -> SignalRecord:
+        iso2 = region.country
+        level, source = _iso2_to_level(iso2, rss_levels)
+        score = min(_LEVEL_SCORE.get(level, 0), MAX_SCORE)
+        logger.info("Region %s C-score: %d (level=%d, src=%s)", region.code, score, level, source)
+        return SignalRecord(
+            region=region.code,
+            signal_class=SignalClass.C,
+            score=score,
+            raw_data={"iso2": iso2, "advisory_level": level, "source": source},
+            source=rss_source,
+            collected_at=now,
+        )
+
     records: list[SignalRecord] = []
 
-    for region in ALL_REGIONS:
-        try:
-            iso2 = region.country
-            level, source = _iso2_to_level(iso2, rss_levels)
-            score = min(_LEVEL_SCORE.get(level, 0), MAX_SCORE)
-
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.C,
-                score=score,
-                raw_data={
-                    "iso2": iso2,
-                    "advisory_level": level,
-                    "source": source,
-                },
-                source=rss_source,
-                collected_at=now,
-            ))
-            logger.info("Region %s C-score: %d (level=%d, src=%s)", region.code, score, level, source)
-
-        except Exception as exc:
-            logger.error("Failed to collect political for %s: %s", region.code, exc)
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.C,
-                score=0,
-                raw_data={"error": str(exc)},
-                source="state_dept_rss",
-                collected_at=now,
-            ))
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_region = {executor.submit(_score_region, r): r for r in ALL_REGIONS}
+        for future in as_completed(future_to_region):
+            region = future_to_region[future]
+            try:
+                records.append(future.result())
+            except Exception as exc:
+                logger.error("Failed to collect political for %s: %s", region.code, exc)
+                records.append(SignalRecord(
+                    region=region.code,
+                    signal_class=SignalClass.C,
+                    score=0,
+                    raw_data={"error": str(exc)},
+                    source="state_dept_rss",
+                    collected_at=now,
+                ))
 
     return records
 

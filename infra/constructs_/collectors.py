@@ -4,8 +4,8 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_events as events,
     aws_events_targets as targets,
-    aws_iam as iam,
     aws_lambda as lambda_,
+    aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -31,15 +31,19 @@ class CollectorsConstruct(Construct):
         id: str,
         *,
         signals_table: dynamodb.Table,
+        dlq: sqs.Queue | None = None,
     ) -> None:
         super().__init__(scope, id)
 
-        # Package entire src/ so shared/ is importable by all handlers
         code = lambda_.Code.from_asset("src")
 
         self.functions: dict[str, lambda_.Function] = {}
 
         for name in COLLECTOR_NAMES:
+            kwargs = {}
+            if dlq:
+                kwargs["dead_letter_queue"] = dlq
+
             fn = lambda_.Function(
                 self,
                 f"{name.capitalize()}Collector",
@@ -53,6 +57,7 @@ class CollectorsConstruct(Construct):
                 environment={
                     "SIGNALS_TABLE": SIGNALS_TABLE_NAME,
                 },
+                **kwargs,
             )
 
             signals_table.grant_read_write_data(fn)

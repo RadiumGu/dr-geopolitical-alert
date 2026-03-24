@@ -21,6 +21,7 @@ import boto3
 from shared.types import SignalClass, GpriLevel, GpriRecord, gpri_to_level
 from shared.region_config import ALL_REGIONS, REGION_MAP
 from shared.db import get_latest_signals, put_gpri, get_previous_level
+from engine.adjudication import adjudicate
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,18 @@ LEVEL_EMOJI = {
     GpriLevel.BLACK: "⚫",
 }
 
+# Per-class weights applied when summing signal scores into GPRI.
+# D = 0: physical-infrastructure collector is suspended (GDELT quality too low).
+_SIGNAL_WEIGHTS: dict[str, float] = {
+    "A": 1.0,  # Armed conflict
+    "B": 1.0,  # Cyber threats
+    "C": 1.0,  # Political stability
+    "D": 0.0,  # Physical infrastructure — SUSPENDED
+    "E": 1.0,  # Extreme weather
+    "F": 1.0,  # Compliance / regulatory
+    "G": 1.0,  # BGP / backbone anomalies
+}
+
 LEVEL_ACTIONS = {
     GpriLevel.GREEN: "正常运营",
     GpriLevel.YELLOW: "加强监控，Review DR 就绪状态",
@@ -52,13 +65,18 @@ def _calc_gpri(region_code: str, baseline: int) -> GpriRecord:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     signals = get_latest_signals(region_code)
 
-    # Sum baseline + all signal scores
+    # Sum baseline + weighted signal scores (D-class weight=0 while suspended)
     total = baseline
     for cls in SignalClass:
-        total += signals.get(cls.value, 0)
+        total += int(signals.get(cls.value, 0) * _SIGNAL_WEIGHTS.get(cls.value, 1.0))
     total = min(total, 100)
 
     level = gpri_to_level(total)
+
+    # Apply multi-signal adjudication (cross-validation)
+    adj = adjudicate(total, level, signals, baseline)
+    level = adj.adjusted_level
+
     prev_level = get_previous_level(region_code)
 
     # Check compliance block (F-class score >= 8)

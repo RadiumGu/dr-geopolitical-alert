@@ -1,11 +1,12 @@
 """SNS Topic + Slack dispatcher Lambda subscription."""
 from aws_cdk import (
     Duration,
+    Stack,
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_sns as sns,
     aws_sns_subscriptions as sns_subscriptions,
-    aws_ssm as ssm,
+    aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -15,7 +16,7 @@ SLACK_WEBHOOK_SSM_PATH = "/dr-alert/slack-webhook-url"
 class NotificationConstruct(Construct):
     """SNS topic for GPRI level changes + Slack dispatcher Lambda."""
 
-    def __init__(self, scope: Construct, id: str) -> None:
+    def __init__(self, scope: Construct, id: str, *, dlq: sqs.Queue | None = None) -> None:
         super().__init__(scope, id)
 
         self.topic = sns.Topic(
@@ -25,9 +26,12 @@ class NotificationConstruct(Construct):
             display_name="DR Geopolitical Alert — GPRI Level Changes",
         )
 
-        slack_webhook_url = ssm.StringParameter.value_for_string_parameter(
-            self, SLACK_WEBHOOK_SSM_PATH
-        )
+        # Pass SSM path as env var; Lambda reads at runtime (no synth-time resolve)
+        env = {"SLACK_WEBHOOK_SSM_PATH": SLACK_WEBHOOK_SSM_PATH}
+
+        kwargs = {}
+        if dlq:
+            kwargs["dead_letter_queue"] = dlq
 
         slack_fn = lambda_.Function(
             self,
@@ -39,16 +43,18 @@ class NotificationConstruct(Construct):
             code=lambda_.Code.from_asset("src"),
             memory_size=256,
             timeout=Duration.seconds(30),
-            environment={
-                "SLACK_WEBHOOK_URL": slack_webhook_url,
-            },
+            environment=env,
+            **kwargs,
         )
 
+        # Grant Lambda permission to read the SSM parameter at runtime
+        region = Stack.of(self).region
+        account = Stack.of(self).account
         slack_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
                 resources=[
-                    f"arn:aws:ssm:us-west-2:926093770964:parameter{SLACK_WEBHOOK_SSM_PATH}"
+                    f"arn:aws:ssm:{region}:{account}:parameter{SLACK_WEBHOOK_SSM_PATH}"
                 ],
             )
         )

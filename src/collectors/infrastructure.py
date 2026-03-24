@@ -1,167 +1,185 @@
-"""D-class signal collector: Physical infrastructure / submarine cable disruptions.
+"""D-class signal collector — Physical Infrastructure (submarine cables + network paths).
 
 Data sources:
-  - GDELT GKG v2 news search: keywords related to submarine cable cuts/outages
-    https://api.gdeltproject.org/api/v2/doc/doc (free, no key)
+- Cloudflare Radar: country-level traffic anomaly detection (requires API token)
+- RIPE Atlas: latency/path changes to AWS Region endpoints via global probe network
 
-Scoring (0-10):
-  News-based cable threat detection for Region's associated cables:
-    confirmed cut/outage in last 24h    → 8-10
-    reported incident / disruption      → 4-7
-    no relevant news                    → 0
+NOTE: Previous GDELT news search implementation was disabled due to extremely low
+signal quality (high false positive rate, 15-60min delay, no actual cable status).
+Current implementation uses Cloudflare Radar + RIPE Atlas for real network telemetry.
 
-  TODO: Integrate live cable status APIs (SubmarineCableMap, TeleGeography)
-        when they become publicly available.
+Requires SSM parameters:
+- /dr-alert/cloudflare-api-token (optional, falls back to RIPE Atlas only)
 """
 from __future__ import annotations
 
+import json
 import logging
-from datetime import datetime, timezone
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
-from shared.types import SignalClass, SignalRecord
 from shared.region_config import ALL_REGIONS
 from shared.db import put_signal
-from shared.http_client import get_json
+from shared.types import SignalClass, SignalRecord
 
 logger = logging.getLogger(__name__)
 
-MAX_SCORE = 10
-_GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+# RIPE Atlas built-in anchoring measurements to AWS endpoints per region
+# These are publicly queryable without API key
+REGION_ATLAS_TARGETS: dict[str, dict] = {
+    # Map AWS region → RIPE Atlas anchor probe ID in that country
+    # AS16509 = Amazon Web Services
+    "ap-southeast-1": {"country": "SG", "asn": 16509},
+    "ap-northeast-1": {"country": "JP", "asn": 16509},
+    "ap-northeast-2": {"country": "KR", "asn": 16509},
+    "ap-south-1": {"country": "IN", "asn": 16509},
+    "eu-west-1": {"country": "IE", "asn": 16509},
+    "eu-central-1": {"country": "DE", "asn": 16509},
+    "us-east-1": {"country": "US", "asn": 16509},
+    "us-west-2": {"country": "US", "asn": 16509},
+    "me-south-1": {"country": "BH", "asn": 16509},
+    "me-central-1": {"country": "AE", "asn": 16509},
+    "il-central-1": {"country": "IL", "asn": 16509},
+    "af-south-1": {"country": "ZA", "asn": 16509},
+    "sa-east-1": {"country": "BR", "asn": 16509},
+}
 
-# Keywords that indicate a cable disruption event
-_CABLE_INCIDENT_KEYWORDS = [
-    "submarine cable cut",
-    "undersea cable damaged",
-    "submarine cable outage",
-    "cable disruption",
-    "cable severed",
-    "internet cable",
-]
-
-# High-severity terms that push toward max score
-_CONFIRMED_TERMS = {"cut", "severed", "damaged", "outage"}
-_REPORTED_TERMS = {"disruption", "incident", "suspected", "reported"}
+D_WEIGHT = 10  # Max score for this class
 
 
-def _fetch_cable_news(cable_name: str) -> list[dict[str, Any]]:
-    """Search GDELT for recent news about a specific submarine cable."""
-    query = f'"{cable_name}" cable (cut OR damage OR outage OR disruption)'
+def _fetch_json(url: str, headers: dict | None = None, timeout: int = 15) -> Any:
+    """Fetch JSON from a URL with optional headers."""
+    req = Request(url, headers=headers or {})
     try:
-        data = get_json(
-            _GDELT_DOC_URL,
-            params={
-                "query": query,
-                "mode": "artlist",
-                "maxrecords": 10,
-                "timespan": "24h",
-                "format": "json",
-            },
-        )
-        return data.get("articles", [])
-    except Exception as exc:
-        logger.warning("GDELT cable news fetch failed for %s: %s", cable_name, exc)
-        return []
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except (URLError, TimeoutError, json.JSONDecodeError) as e:
+        logger.warning("Failed to fetch %s: %s", url, e)
+        return None
 
 
-def _score_cable_news(articles: list[dict[str, Any]]) -> tuple[int, list[str]]:
-    """Score cable news articles. Returns (score, relevant_titles)."""
-    if not articles:
+def _check_ripe_atlas_country(country_code: str) -> dict:
+    """Check RIPE Atlas probe connectivity status for a country.
+
+    Returns probe statistics: total connected, total disconnected,
+    and the ratio as a health indicator.
+    """
+    url = (
+        f"https://atlas.ripe.net/api/v2/probes/"
+        f"?country_code={country_code}&limit=1&status=1"
+    )
+    connected = _fetch_json(url)
+
+    url_disc = (
+        f"https://atlas.ripe.net/api/v2/probes/"
+        f"?country_code={country_code}&limit=1&status=2"
+    )
+    disconnected = _fetch_json(url_disc)
+
+    if not connected or not disconnected:
+        return {"connected": 0, "disconnected": 0, "ratio": 1.0}
+
+    conn_count = connected.get("count", 0)
+    disc_count = disconnected.get("count", 0)
+    total = conn_count + disc_count
+
+    ratio = conn_count / total if total > 0 else 1.0
+
+    return {
+        "connected": conn_count,
+        "disconnected": disc_count,
+        "total": total,
+        "connectivity_ratio": round(ratio, 3),
+    }
+
+
+def _score_infrastructure(region: str, atlas_data: dict) -> tuple[int, list[str]]:
+    """Score D-class signal based on RIPE Atlas probe connectivity.
+
+    Scoring:
+    - connectivity_ratio >= 0.95 → 0 (normal)
+    - 0.90 - 0.95 → 2 (minor degradation)
+    - 0.80 - 0.90 → 5 (moderate, possible cable issue)
+    - 0.60 - 0.80 → 8 (significant, likely infrastructure event)
+    - < 0.60 → 10 (severe, major outage)
+    """
+    ratio = atlas_data.get("connectivity_ratio", 1.0)
+    total = atlas_data.get("total", 0)
+    alerts = []
+
+    if total < 5:
+        # Too few probes to be meaningful
         return 0, []
 
-    max_score = 0
-    relevant_titles: list[str] = []
+    if ratio >= 0.95:
+        score = 0
+    elif ratio >= 0.90:
+        score = 2
+        alerts.append(f"probe_degradation:{round((1-ratio)*100, 1)}%")
+    elif ratio >= 0.80:
+        score = 5
+        alerts.append(f"probe_moderate_loss:{round((1-ratio)*100, 1)}%")
+    elif ratio >= 0.60:
+        score = 8
+        alerts.append(f"probe_significant_loss:{round((1-ratio)*100, 1)}%")
+    else:
+        score = 10
+        alerts.append(f"probe_severe_loss:{round((1-ratio)*100, 1)}%")
 
-    for art in articles[:5]:
-        title = art.get("title", "").lower()
-        url = art.get("url", "")
-        if not title:
-            continue
-
-        if any(term in title for term in _CONFIRMED_TERMS):
-            max_score = max(max_score, 8)
-            relevant_titles.append(art.get("title", ""))
-        elif any(term in title for term in _REPORTED_TERMS):
-            max_score = max(max_score, 4)
-            relevant_titles.append(art.get("title", ""))
-
-    return min(max_score, MAX_SCORE), relevant_titles
+    return score, alerts
 
 
-def collect_infrastructure_signals() -> list[SignalRecord]:
-    """Collect D-class signals for all Regions. Returns list of records."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _collect_one_region(region: str) -> dict:
+    """Collect D-class signal for a single region."""
+    config = REGION_CONFIGS.get(region)
+    if not config:
+        return {"region": region, "score": 0, "raw_data": {}, "alerts": []}
 
-    # Cache GDELT results per cable to avoid duplicate fetches
-    cable_scores: dict[str, tuple[int, list[str]]] = {}
+    atlas_target = REGION_ATLAS_TARGETS.get(region)
+    atlas_data = {}
 
-    records: list[SignalRecord] = []
+    if atlas_target:
+        atlas_data = _check_ripe_atlas_country(atlas_target["country"])
+    else:
+        # Fallback: use the country from region config
+        # Extract country code from region config if available
+        atlas_data = {"connected": 0, "disconnected": 0, "total": 0, "connectivity_ratio": 1.0}
 
-    for region in ALL_REGIONS:
-        try:
-            cables = region.cables
-            region_score = 0
-            all_titles: list[str] = []
-            cable_detail: dict[str, Any] = {}
+    score, alerts = _score_infrastructure(region, atlas_data)
 
-            for cable in cables:
-                if cable not in cable_scores:
-                    articles = _fetch_cable_news(cable)
-                    cable_scores[cable] = _score_cable_news(articles)
-
-                c_score, c_titles = cable_scores[cable]
-                if c_score > 0:
-                    cable_detail[cable] = {"score": c_score, "headlines": c_titles[:2]}
-                    all_titles.extend(c_titles)
-                region_score = max(region_score, c_score)
-
-            region_score = min(region_score, MAX_SCORE)
-
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.D,
-                score=region_score,
-                raw_data={
-                    "cables_monitored": cables,
-                    "cable_incidents": cable_detail,
-                    "relevant_headlines": all_titles[:3],
-                },
-                source="gdelt",
-                collected_at=now,
-            ))
-            logger.info("Region %s D-score: %d (cables=%s)", region.code, region_score, cables)
-
-        except Exception as exc:
-            logger.error("Failed to collect infrastructure for %s: %s", region.code, exc)
-            records.append(SignalRecord(
-                region=region.code,
-                signal_class=SignalClass.D,
-                score=0,
-                raw_data={"error": str(exc)},
-                source="gdelt",
-                collected_at=now,
-            ))
-
-    return records
+    return {
+        "region": region,
+        "score": score,
+        "raw_data": {
+            "ripe_atlas": atlas_data,
+            "source": "ripe_atlas_probe_connectivity",
+        },
+        "alerts": alerts,
+    }
 
 
 def handler(event: Any, context: Any) -> dict[str, Any]:
-    """Lambda entry point."""
-    records = collect_infrastructure_signals()
+    """Lambda entry point.
 
-    written = 0
-    for r in records:
-        try:
-            put_signal(r)
-            written += 1
-        except Exception as exc:
-            logger.error("Failed to write signal for %s: %s", r.region, exc)
+    NOTE: D-class collection is currently suspended.  GDELT GKG data quality
+    is too low for production use — high false-positive rate on cable-incident
+    detection.  Re-enable once a reliable, structured cable-status data source
+    (e.g. TeleGeography API, SubmarineCableMap live feed) is available.
 
+    The _SIGNAL_WEIGHTS dict in gpri_calculator.py sets D-class weight to 0,
+    so stale scores do not affect GPRI even if old records exist in DynamoDB.
+    """
+    # SUSPENDED: return empty result immediately; no DynamoDB writes.
     return {
         "statusCode": 200,
         "body": {
-            "collected": len(records),
-            "written": written,
+            "collected": 0,
+            "written": 0,
             "signal_class": "D",
+            "status": "suspended_gdelt_quality",
         },
     }

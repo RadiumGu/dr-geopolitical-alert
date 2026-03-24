@@ -62,24 +62,69 @@ def put_signal(record: SignalRecord) -> None:
 def get_latest_signals(region_code: str) -> dict[str, int]:
     """Get the most recent score for each signal class for a region.
 
+    Issues a single DynamoDB Query with begins_with("SIG#") to fetch all
+    signal classes in one API round-trip, reducing 7 × N queries to 1 × N.
+    Items are returned in descending SK order (SIG#G#... → SIG#A#...) so the
+    first item seen for each class letter is the most recent.
+
     Returns: {"A": 8, "B": 3, ...} — missing classes default to 0.
     """
     table = _dynamodb.Table(SIGNALS_TABLE)
-    result: dict[str, int] = {}
+    result: dict[str, int] = {cls.value: 0 for cls in SignalClass}
+    seen: set[str] = set()
+    all_classes = {cls.value for cls in SignalClass}
 
-    for cls in SignalClass:
-        resp = table.query(
-            KeyConditionExpression=(
-                Key("PK").eq(f"REGION#{region_code}")
-                & Key("SK").begins_with(f"SIG#{cls.value}#")
-            ),
-            ScanIndexForward=False,  # newest first
-            Limit=1,
-        )
-        items = resp.get("Items", [])
-        result[cls.value] = int(items[0]["score"]) if items else 0
+    query_kwargs: dict[str, Any] = {
+        "KeyConditionExpression": (
+            Key("PK").eq(f"REGION#{region_code}")
+            & Key("SK").begins_with("SIG#")
+        ),
+        "ScanIndexForward": False,
+        "ProjectionExpression": "signal_class, score",
+    }
+
+    # Paginate until we have found the latest score for every class.
+    while True:
+        resp = table.query(**query_kwargs)
+        for item in resp.get("Items", []):
+            cls_val = str(item.get("signal_class", ""))
+            if cls_val and cls_val not in seen:
+                seen.add(cls_val)
+                result[cls_val] = int(item["score"])
+            if seen >= all_classes:
+                return result
+
+        if "LastEvaluatedKey" not in resp:
+            break
+        query_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
 
     return result
+
+
+def get_signal_history(
+    region_code: str, signal_class: str, limit: int = 48
+) -> list[dict[str, Any]]:
+    """Get recent signal records for a region + class (newest first).
+
+    Args:
+        region_code: AWS Region code, e.g. "ap-northeast-1".
+        signal_class: Single letter, e.g. "B".
+        limit: Maximum number of records to return (default 48 ≈ 8 h at 10-min cadence).
+
+    Returns:
+        List of DynamoDB item dicts with at least ``score`` and ``raw_data``.
+    """
+    table = _dynamodb.Table(SIGNALS_TABLE)
+    resp = table.query(
+        KeyConditionExpression=(
+            Key("PK").eq(f"REGION#{region_code}")
+            & Key("SK").begins_with(f"SIG#{signal_class}#")
+        ),
+        ScanIndexForward=False,
+        Limit=limit,
+        ProjectionExpression="score, raw_data",
+    )
+    return resp.get("Items", [])
 
 
 # ── GPRI ──

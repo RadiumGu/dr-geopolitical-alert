@@ -12,6 +12,7 @@ from constructs_.collectors import CollectorsConstruct
 from constructs_.gpri_engine import GpriEngineConstruct
 from constructs_.notification import NotificationConstruct
 from constructs_.dashboard import DashboardConstruct
+from constructs_.api import ApiConstruct
 
 
 class DrGeopoliticalAlertStack(Stack):
@@ -53,7 +54,10 @@ class DrGeopoliticalAlertStack(Stack):
         # 5. CloudWatch Dashboard
         dashboard = DashboardConstruct(self, "Dashboard")
 
-        # 6. DLQ Alarm — fires when any Lambda sends a failed event to DLQ
+        # 6. Public GPRI Query API (Lambda Function URL)
+        api = ApiConstruct(self, "Api", gpri_table=tables.gpri_table)
+
+        # 7. DLQ Alarm — fires when any Lambda sends a failed event to DLQ
         dlq_alarm = cloudwatch.Alarm(
             self,
             "DlqAlarm",

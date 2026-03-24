@@ -124,11 +124,53 @@ aws lambda invoke --function-name dr-alert-collector-weather --region us-west-2 
 aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /tmp/out.json
 ```
 
+After deployment, CDK outputs the **GPRI Query API URL** (Lambda Function URL). You can query it immediately.
+
+## GPRI Query API
+
+A public, read-only API to query live GPRI scores — no authentication required.
+
+### Query a single Region
+
+```bash
+curl "https://<your-function-url>/?region=il-central-1"
+```
+
+```json
+{
+  "region": "il-central-1",
+  "gpri": 42,
+  "level": "GREEN",
+  "confidence": "LOW",
+  "components": {"A": 0, "B": 0, "C": 15, "D": 2, "E": 0, "F": 0, "G": 0},
+  "timestamp": "2026-03-24T16:50:22Z"
+}
+```
+
+### Query all 34 Regions
+
+```bash
+curl "https://<your-function-url>/"
+```
+
+```json
+{
+  "count": 34,
+  "regions": [
+    {"region": "il-central-1", "gpri": 42, "level": "GREEN", "city": "Tel Aviv", "country": "IL", "baseline": 25, ...},
+    {"region": "me-central-1", "gpri": 31, "level": "GREEN", "city": "Dubai", "country": "AE", "baseline": 20, ...},
+    ...
+  ]
+}
+```
+
+> The Function URL is output by `cdk deploy` as `DrGeopoliticalAlertStack.ApiGpriQueryUrl`.
+
 ## AWS Resources
 
 | Resource | Count | Purpose |
 |----------|-------|---------|
-| Lambda Functions | 9 | 7 collectors + 1 GPRI engine + 1 Slack notifier |
+| Lambda Functions | 10 | 7 collectors + 1 GPRI engine + 1 Slack notifier + 1 API query |
 | DynamoDB Tables | 2 | `dr-alert-signals` + `dr-alert-gpri` |
 | EventBridge Rules | 8 | 7 × 10min (collectors) + 1 × 5min (GPRI) |
 | SNS Topic | 1 | GPRI level change alerts |
@@ -183,8 +225,11 @@ dr-geopolitical-alert/
 │       ├── collectors.py    # 7 Lambda + EventBridge
 │       ├── gpri_engine.py   # GPRI calculator Lambda
 │       ├── notification.py  # SNS + Slack Lambda
-│       └── dashboard.py     # CloudWatch Dashboard
+│       ├── dashboard.py     # CloudWatch Dashboard
+│       └── api.py           # GPRI Query Lambda Function URL
 ├── src/                     # Lambda source code
+│   ├── api/
+│   │   └── gpri_query.py    # Public GPRI query endpoint
 │   ├── collectors/          # 7 signal collectors (A–G)
 │   ├── engine/
 │   │   ├── gpri_calculator.py

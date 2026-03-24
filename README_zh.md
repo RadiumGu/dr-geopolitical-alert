@@ -125,11 +125,53 @@ aws lambda invoke --function-name dr-alert-collector-weather --region us-west-2 
 aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /tmp/out.json
 ```
 
+部署完成后，CDK 会输出 **GPRI 查询 API URL**（Lambda Function URL），可以直接使用。
+
+## GPRI 查询 API
+
+公开的只读 API，查询实时 GPRI 评分 —— 无需认证。
+
+### 查询单个 Region
+
+```bash
+curl "https://<your-function-url>/?region=il-central-1"
+```
+
+```json
+{
+  "region": "il-central-1",
+  "gpri": 42,
+  "level": "GREEN",
+  "confidence": "LOW",
+  "components": {"A": 0, "B": 0, "C": 15, "D": 2, "E": 0, "F": 0, "G": 0},
+  "timestamp": "2026-03-24T16:50:22Z"
+}
+```
+
+### 查询全部 34 个 Region
+
+```bash
+curl "https://<your-function-url>/"
+```
+
+```json
+{
+  "count": 34,
+  "regions": [
+    {"region": "il-central-1", "gpri": 42, "level": "GREEN", "city": "Tel Aviv", "country": "IL", "baseline": 25, ...},
+    {"region": "me-central-1", "gpri": 31, "level": "GREEN", "city": "Dubai", "country": "AE", "baseline": 20, ...},
+    ...
+  ]
+}
+```
+
+> Function URL 在 `cdk deploy` 输出中显示为 `DrGeopoliticalAlertStack.ApiGpriQueryUrl`。
+
 ## AWS 资源清单
 
 | 资源 | 数量 | 用途 |
 |------|------|------|
-| Lambda 函数 | 9 | 7 采集器 + 1 GPRI 引擎 + 1 Slack 通知 |
+| Lambda 函数 | 10 | 7 采集器 + 1 GPRI 引擎 + 1 Slack 通知 + 1 API 查询 |
 | DynamoDB 表 | 2 | `dr-alert-signals` + `dr-alert-gpri` |
 | EventBridge 规则 | 8 | 7 × 10分钟（采集器）+ 1 × 5分钟（GPRI） |
 | SNS Topic | 1 | GPRI 等级变化告警 |
@@ -184,8 +226,11 @@ dr-geopolitical-alert/
 │       ├── collectors.py    # 7 Lambda + EventBridge 调度
 │       ├── gpri_engine.py   # GPRI 计算 Lambda
 │       ├── notification.py  # SNS + Slack Lambda
-│       └── dashboard.py     # CloudWatch 仪表板
+│       ├── dashboard.py     # CloudWatch 仪表板
+│       └── api.py           # GPRI 查询 Lambda Function URL
 ├── src/                     # Lambda 源码
+│   ├── api/
+│   │   └── gpri_query.py    # 公开 GPRI 查询端点
 │   ├── collectors/          # 7 个信号采集器（A–G 类）
 │   ├── engine/
 │   │   ├── gpri_calculator.py
@@ -196,7 +241,7 @@ dr-geopolitical-alert/
 │       ├── types.py         # 数据模型 + 枚举
 │       ├── region_config.py # 34 Region 定义 + 基线分
 │       ├── db.py            # DynamoDB 操作
-│       └── http_client.py   # 弹性 HTTP 客户端
+│       └── http_client.py   # 韧性 HTTP 客户端
 ├── tests/unit/              # 100 个单元测试
 ├── cdk.json
 ├── requirements.txt

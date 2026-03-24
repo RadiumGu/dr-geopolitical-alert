@@ -136,6 +136,39 @@ aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /t
 
 **Estimated monthly cost: $5–15** (all serverless, pay-per-use)
 
+### Cost Breakdown
+
+| Resource | Estimate | Notes |
+|----------|----------|-------|
+| Lambda | ~$2–5 | 9 functions × ~4,300 invocations/month (every 5–10 min), 256MB, <3s avg |
+| DynamoDB | ~$1–3 | On-demand mode; ~4,300 writes/month per collector + 34 GPRI writes per cycle |
+| EventBridge | Free | Included in free tier (8 rules) |
+| CloudWatch Dashboard | $3 | 1 custom dashboard |
+| SNS/SQS | ~$0 | Minimal usage (only on level changes) |
+| CloudWatch Alarm | ~$0.10 | 1 alarm |
+| **Total** | **~$6–11/month** | No NAT Gateway, no VPC, no reserved capacity |
+
+> All external data sources (UCDP, ACLED, abuse.ch, RIPE Atlas, Open-Meteo, USGS, GDACS, IODA, OFAC, State Dept) are **free public APIs** — no API keys or subscriptions required.
+
+## Data Sources
+
+All signal collectors use **free, public APIs** with no authentication required (except optional Cloudflare Radar for future D-class enhancement):
+
+| Class | Source | API Endpoint | What It Provides |
+|-------|--------|-------------|-----------------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | `https://ucdpapi.pcr.uu.se/api/gedevents/` | Georeferenced armed conflict events |
+| **A** | [ACLED](https://acleddata.com/) (fallback) | `https://api.acleddata.com/acled/read` | Political violence & protest events |
+| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt` | Botnet C2 IP blocklist |
+| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | `https://urlhaus-api.abuse.ch/v1/urls/recent/` | Malware distribution URLs |
+| **C** | [US State Dept Travel Advisory](https://travel.state.gov/) | `https://travel.state.gov/_res/rss/TAsTWs.xml` | Country travel risk levels (1–4) |
+| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `https://atlas.ripe.net/api/v2/probes/` | Network probe connectivity by country |
+| **E** | [Open-Meteo](https://open-meteo.com/) | `https://api.open-meteo.com/v1/forecast` | Extreme weather alerts (batch API) |
+| **E** | [USGS Earthquake](https://earthquake.usgs.gov/) | `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson` | Significant seismic events |
+| **E** | [GDACS](https://www.gdacs.org/) | `https://www.gdacs.org/xml/rss.xml` | Global disaster alerts (flood, cyclone, volcano) |
+| **F** | [OFAC SDN](https://ofac.treasury.gov/) | `https://sanctionssearch.ofac.treas.gov/` (RSS) | US sanctions updates |
+| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `https://eur-lex.europa.eu/rss/...` | EU regulatory changes |
+| **G** | [IODA (CAIDA)](https://ioda.inetintelligence.cc/) | `https://api.ioda.inetintelligence.cc/v2/signals/raw/country/` | Internet outage detection (BGP, Active Probing, Darknet) |
+
 ## Project Structure
 
 ```

@@ -137,6 +137,39 @@ aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /t
 
 **预估月费：$5–15**（全 Serverless，按用量计费）
 
+### 费用明细
+
+| 资源 | 预估费用 | 说明 |
+|------|---------|------|
+| Lambda | ~$2–5 | 9 个函数 × 每月约 4,300 次调用（每 5-10 分钟），256MB，平均 <3s |
+| DynamoDB | ~$1–3 | On-demand 模式；每个采集器每月约 4,300 次写入 + 每轮 34 次 GPRI 写入 |
+| EventBridge | 免费 | 8 条规则，在免费额度内 |
+| CloudWatch 仪表板 | $3 | 1 个自定义仪表板 |
+| SNS/SQS | ~$0 | 极少使用（仅等级变化时触发） |
+| CloudWatch 告警 | ~$0.10 | 1 个告警 |
+| **合计** | **约 $6–11/月** | 无 NAT Gateway、无 VPC、无预留容量 |
+
+> 所有外部数据源（UCDP、ACLED、abuse.ch、RIPE Atlas、Open-Meteo、USGS、GDACS、IODA、OFAC、State Dept）均为**免费公开 API**——无需 API Key 或付费订阅。
+
+## 数据源
+
+所有信号采集器使用**免费公开 API**，无需认证（Cloudflare Radar 为未来 D 类增强选项，需 API token）：
+
+| 类别 | 数据源 | API 端点 | 提供内容 |
+|------|--------|---------|---------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | `https://ucdpapi.pcr.uu.se/api/gedevents/` | 地理编码武装冲突事件 |
+| **A** | [ACLED](https://acleddata.com/)（降级） | `https://api.acleddata.com/acled/read` | 政治暴力与抗议事件 |
+| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt` | 僵尸网络 C2 IP 黑名单 |
+| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | `https://urlhaus-api.abuse.ch/v1/urls/recent/` | 恶意软件分发 URL |
+| **C** | [美国国务院旅行预警](https://travel.state.gov/) | `https://travel.state.gov/_res/rss/TAsTWs.xml` | 国家旅行风险等级 (1–4) |
+| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `https://atlas.ripe.net/api/v2/probes/` | 各国网络探针连接率 |
+| **E** | [Open-Meteo](https://open-meteo.com/) | `https://api.open-meteo.com/v1/forecast` | 极端天气预警（批量 API） |
+| **E** | [USGS 地震](https://earthquake.usgs.gov/) | `https://earthquake.usgs.gov/.../significant_week.geojson` | 重大地震事件 |
+| **E** | [GDACS](https://www.gdacs.org/) | `https://www.gdacs.org/xml/rss.xml` | 全球灾害预警（洪水、气旋、火山） |
+| **F** | [OFAC SDN](https://ofac.treasury.gov/) | `https://sanctionssearch.ofac.treas.gov/`（RSS） | 美国制裁名单更新 |
+| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `https://eur-lex.europa.eu/rss/...` | 欧盟法规变更 |
+| **G** | [IODA (CAIDA)](https://ioda.inetintelligence.cc/) | `https://api.ioda.inetintelligence.cc/v2/signals/raw/country/` | 互联网中断检测（BGP、主动探测、暗网） |
+
 ## 项目结构
 
 ```

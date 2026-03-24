@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 import boto3
@@ -27,6 +28,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _float_to_decimal(obj: Any) -> Any:
+    """Recursively convert floats to Decimal for DynamoDB."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: _float_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_float_to_decimal(i) for i in obj]
+    return obj
+
+
 # ── Signals ──
 
 
@@ -39,7 +51,7 @@ def put_signal(record: SignalRecord) -> None:
             "SK": record.sk,
             "signal_class": record.signal_class.value,
             "score": record.score,
-            "raw_data": record.raw_data,
+            "raw_data": _float_to_decimal(record.raw_data),
             "source": record.source,
             "collected_at": record.collected_at,
             "ttl": _ttl(TTL_SIGNALS_DAYS),

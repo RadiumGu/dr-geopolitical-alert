@@ -8,7 +8,7 @@ app = cdk.App()
 DrGeopoliticalAlertStack(
     app,
     "DrGeopoliticalAlertStack",
-    env=cdk.Environment(account="926093770964", region="ap-northeast-1"),
+    env=cdk.Environment(account="926093770964", region="us-west-2"),
     description="AWS DR Geopolitical Alert - GPRI early warning system",
 )
 

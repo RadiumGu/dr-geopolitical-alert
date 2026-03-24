@@ -2,12 +2,10 @@
 from aws_cdk import Stack
 from constructs import Construct
 from constructs_.tables import TablesConstruct
-from constructs_.stubs import (
-    CollectorsConstruct,
-    GpriEngineConstruct,
-    NotificationConstruct,
-    DashboardConstruct,
-)
+from constructs_.collectors import CollectorsConstruct
+from constructs_.gpri_engine import GpriEngineConstruct
+from constructs_.notification import NotificationConstruct
+from constructs_.dashboard import DashboardConstruct
 
 
 class DrGeopoliticalAlertStack(Stack):

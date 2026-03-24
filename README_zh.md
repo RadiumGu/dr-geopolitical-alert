@@ -176,10 +176,6 @@ aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /t
 
 ```
 dr-geopolitical-alert/
-├── doc/
-│   ├── prd.md              # 产品需求文档（755 行，含 34 Region 画像）
-│   ├── tdd.md              # 技术设计文档
-│   └── review.md           # 架构审阅报告
 ├── infra/                   # CDK 基础设施（Python）
 │   ├── app.py              # CDK 入口
 │   ├── stacks/alert_stack.py
@@ -240,6 +236,10 @@ python3 -m pytest tests/ -v
 | **综合研判引擎** | 防止单一信号误报（PRD §5.3 "多信号交叉验证"） |
 | **D 类用 RIPE Atlas** | 替换不可靠的 GDELT 新闻搜索，使用真实网络遥测数据 |
 | **B 类趋势对比** | 为历史基线异常倍数 |
+
+## 免责声明
+
+本项目**仅供学习和参考使用**。GPRI 评分、基线风险评估和信号分析基于公开数据和简化的启发式模型，**不构成**专业的地缘政治、安全或容灾建议。基线分反映的是国家级别的风险概况，可能无法准确代表特定 AWS 数据中心所在地的实际情况。在基于本系统的输出做出关键基础设施或容灾决策前，请务必进行独立的尽职调查并咨询专业人士。作者不对基于 GPRI 评分或告警所采取的行动承担任何责任。
 
 ## 许可证
 

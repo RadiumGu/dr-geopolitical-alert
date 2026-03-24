@@ -175,10 +175,6 @@ All signal collectors use **free, public APIs** with no authentication required 
 
 ```
 dr-geopolitical-alert/
-├── doc/
-│   ├── prd.md              # Product Requirements (755 lines, 34 Region profiles)
-│   ├── tdd.md              # Technical Design Document
-│   └── review.md           # Architecture review report
 ├── infra/                   # CDK Infrastructure (Python)
 │   ├── app.py              # CDK entry point
 │   ├── stacks/alert_stack.py
@@ -237,6 +233,10 @@ The dashboard has 39 widgets organized as follows:
 - **Adjudication engine**: Prevents single-signal false alarms (PRD §5.3 "multi-signal cross-validation")
 - **D-class via RIPE Atlas**: Replaced unreliable GDELT news search with real network telemetry (probe connectivity ratios)
 - **B-class trend comparison**: Changed from absolute counts (US always high) to anomaly-ratio vs historical baseline
+
+## Disclaimer
+
+This project is provided **for educational and reference purposes only**. The GPRI scores, baseline risk assessments, and signal analyses are based on publicly available data and simplified heuristics — they do **not** constitute professional geopolitical, security, or disaster recovery advice. Baseline scores reflect general country-level risk profiles and may not accurately represent conditions at specific AWS data center locations. Always conduct your own due diligence and consult qualified professionals before making critical infrastructure or DR decisions based on this system's output. The authors assume no liability for actions taken based on GPRI scores or alerts.
 
 ## License
 

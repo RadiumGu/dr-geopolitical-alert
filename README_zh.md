@@ -151,9 +151,19 @@ python3 -m pytest tests/ -v
 ## 监控
 
 **CloudWatch 仪表板**: us-west-2 的 `DrGeopoliticalAlert`
-- 34 个 Region 按基线风险从高到低排列
-- Top 10 风险 Region 时间线 + 阈值标注
-- Top 3 风险 Region 的 7 维信号分解图
+
+仪表板包含 39 个 widget，布局如下：
+
+- **标题栏**: `GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` + 颜色级别图例
+- **34 个 Region 数值卡片**: 按基线风险从高到低排列，每个显示：
+  - 实时 GPRI 总分（基线 + 信号）
+  - Sparkline 趋势线
+  - 标题含 `BL:xx` 表示该 Region 的静态基线分
+  - 分层标识：🔴 高基线(≥15)、🟡 中等(≥10)、🔵 一般(≥6)、🟢 低风险(<6)
+- **时间线图**: `GPRI Total Score (Baseline + Signals) — Top 10 Risk Regions`，带 YELLOW/ORANGE/RED/BLACK 阈值线
+- **3 个信号分解图**: `Real-Time Signals Only (excl. Baseline)`，展示 Top 3 风险 Region（Israel、Bahrain、Dubai）的 7 维信号堆叠面积图
+
+> **说明**: 上方数值卡片的 GPRI 总分 = 基线 + 信号。下方信号分解图**只显示实时信号部分**，不含静态基线。两者的差值恒等于该 Region 的基线分（标题中的 `BL:xx`）。
 
 ## 关键设计决策
 

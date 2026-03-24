@@ -152,9 +152,19 @@ python3 -m pytest tests/ -v
 ## Monitoring
 
 **CloudWatch Dashboard**: `DrGeopoliticalAlert` in us-west-2
-- 34 single-value widgets sorted by baseline risk (highest first)
-- Top 10 risk timeline with threshold annotations
-- Signal breakdown charts for top 3 risk Regions
+
+The dashboard has 39 widgets organized as follows:
+
+- **Header**: `GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` with color-coded level legend
+- **34 Single-Value Widgets**: One per Region, sorted by baseline risk (highest first). Each shows:
+  - Live GPRI total score (Baseline + Signals)
+  - Sparkline trend
+  - Title includes `BL:xx` showing the Region's static baseline score
+  - Tier emoji: 🔴 high baseline (≥15), 🟡 medium (≥10), 🔵 moderate (≥6), 🟢 low (<6)
+- **Timeline Graph**: `GPRI Total Score (Baseline + Signals) — Top 10 Risk Regions` with horizontal threshold lines at YELLOW/ORANGE/RED/BLACK
+- **3 Signal Breakdown Charts**: `Real-Time Signals Only (excl. Baseline)` for the top 3 risk Regions (Israel, Bahrain, Dubai). Stacked area chart showing all 7 signal classes (A–G)
+
+> **Note**: The GPRI Total (top widgets) = Baseline + Signals. The Signal Breakdown charts (bottom) show **only the real-time signal components**, excluding the static baseline. The difference between the two always equals the Region's baseline score (`BL:xx` in the title).
 
 ## Design Decisions
 

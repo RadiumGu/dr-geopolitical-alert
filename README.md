@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README_zh.md)
+
 # DR Geopolitical Alert System
 
 > **AWS Cross-Region Disaster Recovery Pre-Alert System — Geopolitical Risk Enhanced**

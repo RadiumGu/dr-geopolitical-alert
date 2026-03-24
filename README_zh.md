@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README_zh.md)
+
 # DR 地缘政治预警系统
 
 > **AWS 跨 Region 容灾预警系统 — 地缘政治风险增强版**

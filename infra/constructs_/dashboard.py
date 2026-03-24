@@ -36,18 +36,9 @@ class DashboardConstruct(Construct):
         # --- Single-value widgets (GPRI total per region) ---
         sv_widgets = []
         for r in regions_sorted:
-            if r.baseline >= 15:
-                emoji = "🔴"
-            elif r.baseline >= 10:
-                emoji = "🟡"
-            elif r.baseline >= 6:
-                emoji = "🔵"
-            else:
-                emoji = "🟢"
-
             sv_widgets.append(
                 cloudwatch.SingleValueWidget(
-                    title=f"{emoji} {r.code} ({r.city}) BL:{r.baseline}",
+                    title=f"{r.code} ({r.city}) BL:{r.baseline}",
                     metrics=[
                         cloudwatch.Metric(
                             namespace=NS,

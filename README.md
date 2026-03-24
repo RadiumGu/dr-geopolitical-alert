@@ -74,7 +74,12 @@ Single-signal dominance is **downgraded** (LOW confidence). Multiple corroborati
 ```bash
 cd dr-geopolitical-alert
 pip install -r requirements.txt
+
+# Deploy (uses your default AWS account, region defaults to us-west-2)
 cdk deploy
+
+# Or specify a different region
+CDK_DEPLOY_REGION=eu-west-1 cdk deploy
 ```
 
 The stack deploys to **us-west-2 (Oregon)** — independent from monitored Regions for control-plane isolation.

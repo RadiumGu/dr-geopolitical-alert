@@ -1,3 +1,20 @@
+# CDK
 cdk.out/
+
+# Python
 __pycache__/
-__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Dashboard cache
+infra/dashboard_body.json

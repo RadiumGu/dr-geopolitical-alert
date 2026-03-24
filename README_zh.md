@@ -73,7 +73,12 @@ GPRI = 基线分 + Σ(信号_i × 权重_i)    上限 100
 ```bash
 cd dr-geopolitical-alert
 pip install -r requirements.txt
+
+# 部署（使用默认 AWS 账号，Region 默认 us-west-2）
 cdk deploy
+
+# 或指定其他 Region
+CDK_DEPLOY_REGION=eu-west-1 cdk deploy
 ```
 
 系统部署在 **us-west-2（Oregon）** —— 独立于被监控 Region，确保控制平面可用性。

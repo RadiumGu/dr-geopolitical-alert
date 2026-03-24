@@ -7,7 +7,7 @@
 
 ## 1. 概述
 
-基于 PRD v0.1 的技术实施方案。全 Serverless 架构，CDK Python 部署，目标账号 926093770964。部署 Region: us-west-2（Oregon），用户主要使用（被监控）Region: ap-northeast-1（Tokyo）。部署 Region 独立于被监控 Region，确保控制平面可用性。
+基于 PRD v0.1 的技术实施方案。全 Serverless 架构，CDK Python 部署，目标账号 YOUR_ACCOUNT_ID。部署 Region: us-west-2（Oregon），用户主要使用（被监控）Region: ap-northeast-1（Tokyo）。部署 Region 独立于被监控 Region，确保控制平面可用性。
 
 ---
 
@@ -604,7 +604,7 @@ Day 5: Code Review + 上线
 |------|------|------|
 | AWS CDK v2 | ✅ 已安装 | `npm install -g aws-cdk` |
 | Python 3.13 | ✅ 已安装 | Lambda Runtime |
-| AWS Account 926093770964 | ✅ 可用 | 部署: us-west-2, 被监控: ap-northeast-1 等 34 Region |
+| AWS Account YOUR_ACCOUNT_ID | ✅ 可用 | 部署: us-west-2, 被监控: ap-northeast-1 等 34 Region |
 | ACLED API Key | ⏳ 需注册 | acleddata.com |
 | Cloudflare Radar Token | ⏳ 需注册 | dash.cloudflare.com |
 | Slack Incoming Webhook URL | ⏳ 需配置 | Slack App |

@@ -18,11 +18,12 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
-from shared.region_config import ALL_REGIONS
+from shared.region_config import ALL_REGIONS, REGION_MAP
 from shared.db import put_signal
 from shared.types import SignalClass, SignalRecord
 
@@ -135,7 +136,7 @@ def _score_infrastructure(region: str, atlas_data: dict) -> tuple[int, list[str]
 
 def _collect_one_region(region: str) -> dict:
     """Collect D-class signal for a single region."""
-    config = REGION_CONFIGS.get(region)
+    config = REGION_MAP.get(region)
     if not config:
         return {"region": region, "score": 0, "raw_data": {}, "alerts": []}
 
@@ -162,24 +163,47 @@ def _collect_one_region(region: str) -> dict:
     }
 
 
-def handler(event: Any, context: Any) -> dict[str, Any]:
-    """Lambda entry point.
+def handler(event: Any, context: Any) -> dict:
+    """Lambda handler: collect D-class infrastructure signals for all regions using RIPE Atlas."""
+    table_name = os.environ.get("SIGNALS_TABLE", "dr-alert-signals")
+    results = []
+    written = 0
 
-    NOTE: D-class collection is currently suspended.  GDELT GKG data quality
-    is too low for production use — high false-positive rate on cable-incident
-    detection.  Re-enable once a reliable, structured cable-status data source
-    (e.g. TeleGeography API, SubmarineCableMap live feed) is available.
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {
+            executor.submit(_collect_one_region, region): region
+            for region in REGION_MAP
+        }
 
-    The _SIGNAL_WEIGHTS dict in gpri_calculator.py sets D-class weight to 0,
-    so stale scores do not affect GPRI even if old records exist in DynamoDB.
-    """
-    # SUSPENDED: return empty result immediately; no DynamoDB writes.
+        for future in as_completed(futures):
+            region = futures[future]
+            try:
+                result = future.result()
+                results.append(result)
+
+                now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                record = SignalRecord(
+                    region=region,
+                    signal_class=SignalClass.D,
+                    score=result["score"],
+                    raw_data=result["raw_data"],
+                    source="ripe_atlas",
+                    collected_at=now,
+                )
+                try:
+                    put_signal(record)
+                    written += 1
+                except Exception as e:
+                    logger.error("Failed to write signal for %s: %s", region, e)
+
+            except Exception as e:
+                logger.error("Failed to collect D-class for %s: %s", region, e)
+
     return {
         "statusCode": 200,
         "body": {
-            "collected": 0,
-            "written": 0,
+            "collected": len(results),
+            "written": written,
             "signal_class": "D",
-            "status": "suspended_gdelt_quality",
         },
     }

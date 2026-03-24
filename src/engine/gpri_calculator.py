@@ -45,7 +45,7 @@ _SIGNAL_WEIGHTS: dict[str, float] = {
     "A": 1.0,  # Armed conflict
     "B": 1.0,  # Cyber threats
     "C": 1.0,  # Political stability
-    "D": 0.0,  # Physical infrastructure — SUSPENDED
+    "D": 1.0,  # Physical infrastructure — RIPE Atlas probe connectivity
     "E": 1.0,  # Extreme weather
     "F": 1.0,  # Compliance / regulatory
     "G": 1.0,  # BGP / backbone anomalies

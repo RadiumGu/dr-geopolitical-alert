@@ -1,8 +1,14 @@
 """A-class signal collector: Armed conflict events.
 
 Data sources:
-  - UCDP GED API (primary, free): gedevents/25.0 — last 90 days
-  - ACLED API (optional, key required): api.acleddata.com/acled/read
+  - ACLED API (optional, key required): acleddata.com/api/acled/read
+  - UCDP GED API (free, ~1 yr delay): gedevents/25.1 — last 90 days
+  - GDELT Doc API (free, real-time 15 min): api.gdeltproject.org — last 90 days
+
+Source priority:
+  1. Keyed ACLED (if credentials available)
+  2. UCDP + GDELT merged (UCDP for historical, GDELT for real-time)
+  3. GDELT alone (if UCDP also fails)
 
 Scoring (0-20):
   Anomaly ratio = 7-day event count / 90-day daily average
@@ -30,7 +36,9 @@ logger = logging.getLogger(__name__)
 
 MAX_SCORE = 20
 _UCDP_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/25.1"
-_ACLED_URL = "https://api.acleddata.com/acled/read"
+_ACLED_URL = "https://acleddata.com/api/acled/read"
+_GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+_GDELT_QUERY = "(attack OR strike OR conflict OR violence OR military OR bombing OR killed)"
 
 # Neighbor spillover map: {country_iso2: [(neighbor_iso2, distance_km), ...]}
 # decay_factor = max(0, 1 - distance_km / 1000); at 1000 km decay reaches 0
@@ -49,6 +57,54 @@ NEIGHBOR_MAP: dict[str, list[tuple[str, int]]] = {
     "SA": [("YE", 300), ("IR", 800), ("IQ", 600)],
 }
 
+# Maps GDELT sourcecountry field (full name) → ISO2 code.
+# Covers all monitored countries and their neighbors.
+GDELT_COUNTRY_MAP: dict[str, str] = {
+    # Monitored countries
+    "Israel": "IL",
+    "United Arab Emirates": "AE",
+    "Bahrain": "BH",
+    "South Africa": "ZA",
+    "Hong Kong": "HK",
+    "South Korea": "KR",
+    "Korea": "KR",
+    "India": "IN",
+    "Indonesia": "ID",
+    "Thailand": "TH",
+    "Brazil": "BR",
+    "Mexico": "MX",
+    "Australia": "AU",
+    "New Zealand": "NZ",
+    "Malaysia": "MY",
+    "Italy": "IT",
+    "Spain": "ES",
+    "Japan": "JP",
+    "United States": "US",
+    "Germany": "DE",
+    "United Kingdom": "GB",
+    "France": "FR",
+    "Sweden": "SE",
+    "Canada": "CA",
+    "Switzerland": "CH",
+    "Ireland": "IE",
+    "Singapore": "SG",
+    # Neighbor countries (used for spillover scoring)
+    "Syria": "SY",
+    "Lebanon": "LB",
+    "Iran": "IR",
+    "Palestine": "PS",
+    "Jordan": "JO",
+    "Yemen": "YE",
+    "Iraq": "IQ",
+    "Saudi Arabia": "SA",
+    "Oman": "OM",
+    "Pakistan": "PK",
+    "China": "CN",
+    "North Korea": "KP",
+    "Myanmar": "MM",
+    "Turkey": "TR",
+}
+
 
 def _fetch_ucdp_events(days: int = 90) -> list[dict[str, Any]]:
     """Fetch UCDP GED conflict events for the last N days."""
@@ -63,14 +119,29 @@ def _fetch_ucdp_events(days: int = 90) -> list[dict[str, Any]]:
     return data.get("Result", [])
 
 
-def _fetch_acled_public(days: int = 30) -> list[dict[str, Any]]:
-    """Fetch recent ACLED events via the public no-auth endpoint (last 30 days, max 500)."""
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+def _fetch_gdelt_events(timespan: str = "90d") -> list[dict[str, Any]]:
+    """Fetch GDELT conflict articles via a single bulk query (no country filter).
+
+    Uses the GDELT Doc API v2 — free, no auth, 15-min real-time updates.
+    Rate limit: 1 request per 5 seconds (caller is responsible for spacing).
+
+    Args:
+        timespan: GDELT timespan string, e.g. ``"90d"`` or ``"7d"``.
+
+    Returns:
+        List of article dicts with keys: url, title, seendate, sourcecountry, etc.
+    """
     data = get_json(
-        _ACLED_URL,
-        params={"limit": 500, "event_date": since, "event_date_where": ">="},
+        _GDELT_URL,
+        params={
+            "query": _GDELT_QUERY,
+            "mode": "ArtList",
+            "format": "json",
+            "timespan": timespan,
+            "maxrecords": 250,
+        },
     )
-    return data.get("data", [])
+    return data.get("articles", [])
 
 
 def _fetch_acled_events(days: int = 90) -> list[dict[str, Any]]:
@@ -93,24 +164,55 @@ def _fetch_acled_events(days: int = 90) -> list[dict[str, Any]]:
     return data.get("data", [])
 
 
+def _parse_gdelt_date(seendate: str) -> str:
+    """Parse GDELT seendate format (20260325T043000Z) to ISO date (2026-03-25).
+
+    Args:
+        seendate: Raw GDELT seendate string.
+
+    Returns:
+        ISO date string ``"YYYY-MM-DD"``, or empty string on parse failure.
+    """
+    if len(seendate) >= 8:
+        return f"{seendate[:4]}-{seendate[4:6]}-{seendate[6:8]}"
+    return ""
+
+
 def _build_country_timeseries(
     events: list[dict[str, Any]], source: str
 ) -> dict[str, list[str]]:
     """Return {iso2_country: [date_str, ...]} from raw events.
 
-    Supports both UCDP (country_id ISO2) and ACLED (iso field / country) schemas.
+    Supports UCDP (country_id ISO2), ACLED (iso/country), and GDELT
+    (sourcecountry full name mapped via GDELT_COUNTRY_MAP).
     """
     series: dict[str, list[str]] = defaultdict(list)
     for ev in events:
         if source == "ucdp":
             iso2 = str(ev.get("country_id", "")).strip().upper()
             date = str(ev.get("date_start", ""))[:10]
+        elif source == "gdelt":
+            country_name = str(ev.get("sourcecountry", "")).strip()
+            iso2 = GDELT_COUNTRY_MAP.get(country_name, "")
+            date = _parse_gdelt_date(str(ev.get("seendate", "")))
         else:  # acled
             iso2 = str(ev.get("iso", ev.get("country", ""))).strip().upper()
             date = str(ev.get("event_date", ""))[:10]
         if iso2 and date:
             series[iso2].append(date)
     return series
+
+
+def _merge_timeseries(
+    a: dict[str, list[str]], b: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Merge two country timeseries dicts by combining their date lists."""
+    merged: dict[str, list[str]] = defaultdict(list)
+    for iso2, dates in a.items():
+        merged[iso2].extend(dates)
+    for iso2, dates in b.items():
+        merged[iso2].extend(dates)
+    return merged
 
 
 def _anomaly_score(count_7d: int, daily_avg_90d: float) -> int:
@@ -135,28 +237,51 @@ def collect_conflict_signals() -> list[SignalRecord]:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     today = datetime.now(timezone.utc).date()
 
-    # Try keyed ACLED first, fall back to UCDP, then public ACLED
+    country_series: dict[str, list[str]] = {}
     source_label = "acled"
-    try:
-        events = _fetch_acled_events(90)
-        logger.info("Using keyed ACLED: %d events", len(events))
-    except Exception as exc:
-        logger.info("Keyed ACLED unavailable (%s), falling back to UCDP", exc)
-        source_label = "ucdp"
-        try:
-            events = _fetch_ucdp_events(90)
-            logger.info("Using UCDP: %d events", len(events))
-        except Exception as exc2:
-            logger.info("UCDP unavailable (%s), falling back to public ACLED", exc2)
-            source_label = "acled_public"
-            try:
-                events = _fetch_acled_public(30)
-                logger.info("Using public ACLED: %d events", len(events))
-            except Exception as exc3:
-                logger.error("All conflict sources failed: %s", exc3)
-                events = []
 
-    country_series = _build_country_timeseries(events, source_label)
+    # Priority 1: keyed ACLED
+    try:
+        acled_events = _fetch_acled_events(90)
+        logger.info("Using keyed ACLED: %d events", len(acled_events))
+        country_series = _build_country_timeseries(acled_events, "acled")
+    except Exception as exc:
+        logger.info("Keyed ACLED unavailable (%s), trying UCDP+GDELT", exc)
+
+        # Priority 2: UCDP + GDELT merged (track success separately from having data)
+        ucdp_series: dict[str, list[str]] = {}
+        gdelt_series: dict[str, list[str]] = {}
+        ucdp_ok = False
+        gdelt_ok = False
+
+        try:
+            ucdp_events = _fetch_ucdp_events(90)
+            ucdp_series = _build_country_timeseries(ucdp_events, "ucdp")
+            ucdp_ok = True
+            logger.info("UCDP: %d events", len(ucdp_events))
+        except Exception as exc2:
+            logger.warning("UCDP unavailable: %s", exc2)
+
+        try:
+            gdelt_events = _fetch_gdelt_events("90d")
+            gdelt_series = _build_country_timeseries(gdelt_events, "gdelt")
+            gdelt_ok = True
+            logger.info("GDELT: %d articles", len(gdelt_events))
+        except Exception as exc3:
+            logger.warning("GDELT unavailable: %s", exc3)
+
+        if ucdp_ok and gdelt_ok:
+            source_label = "ucdp+gdelt"
+            country_series = _merge_timeseries(ucdp_series, gdelt_series)
+        elif ucdp_ok:
+            source_label = "ucdp"
+            country_series = ucdp_series
+        elif gdelt_ok:
+            source_label = "gdelt"
+            country_series = gdelt_series
+        else:
+            logger.error("All conflict sources failed")
+            country_series = {}
 
     def _score_region(region: RegionConfig) -> SignalRecord:
         iso2 = region.country

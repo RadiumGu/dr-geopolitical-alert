@@ -6,9 +6,12 @@ from unittest.mock import patch
 import pytest
 
 from collectors.conflict import (
+    GDELT_COUNTRY_MAP,
     NEIGHBOR_MAP,
     _anomaly_score,
     _build_country_timeseries,
+    _merge_timeseries,
+    _parse_gdelt_date,
     collect_conflict_signals,
 )
 
@@ -44,10 +47,49 @@ class TestAnomalyScore:
         assert score <= 20
 
 
+# ── _parse_gdelt_date ──────────────────────────────────────────────────────────
+
+class TestParseGdeltDate:
+    """Verify GDELT seendate parsing."""
+
+    def test_standard_format(self) -> None:
+        assert _parse_gdelt_date("20260325T043000Z") == "2026-03-25"
+
+    def test_exact_8_chars(self) -> None:
+        assert _parse_gdelt_date("20260101") == "2026-01-01"
+
+    def test_short_string_returns_empty(self) -> None:
+        assert _parse_gdelt_date("2026") == ""
+        assert _parse_gdelt_date("") == ""
+
+
+# ── GDELT_COUNTRY_MAP ──────────────────────────────────────────────────────────
+
+class TestGdeltCountryMap:
+    """Verify GDELT_COUNTRY_MAP covers key countries."""
+
+    def test_monitored_countries_present(self) -> None:
+        expected = {
+            "Israel": "IL",
+            "United Arab Emirates": "AE",
+            "Bahrain": "BH",
+            "South Korea": "KR",
+            "Japan": "JP",
+            "India": "IN",
+            "United States": "US",
+        }
+        for name, iso2 in expected.items():
+            assert GDELT_COUNTRY_MAP.get(name) == iso2, f"Missing: {name}"
+
+    def test_neighbor_countries_present(self) -> None:
+        for name in ["Yemen", "Syria", "Iran", "Iraq", "Pakistan", "North Korea", "Myanmar"]:
+            assert name in GDELT_COUNTRY_MAP, f"Neighbor missing: {name}"
+
+
 # ── _build_country_timeseries ──────────────────────────────────────────────────
 
 class TestBuildCountryTimeseries:
-    """Verify UCDP and ACLED event parsing."""
+    """Verify UCDP, ACLED, and GDELT event parsing."""
 
     def test_ucdp_parses_country_id_and_date(self) -> None:
         events = [
@@ -67,10 +109,48 @@ class TestBuildCountryTimeseries:
         series = _build_country_timeseries(events, "acled")
         assert len(series["DE"]) == 2
 
+    def test_gdelt_maps_country_name_and_seendate(self) -> None:
+        events = [
+            {"sourcecountry": "Israel", "seendate": "20260320T120000Z"},
+            {"sourcecountry": "Israel", "seendate": "20260321T080000Z"},
+            {"sourcecountry": "Yemen", "seendate": "20260320T090000Z"},
+        ]
+        series = _build_country_timeseries(events, "gdelt")
+        assert series["IL"] == ["2026-03-20", "2026-03-21"]
+        assert series["YE"] == ["2026-03-20"]
+
+    def test_gdelt_unknown_country_skipped(self) -> None:
+        events = [{"sourcecountry": "Atlantis", "seendate": "20260320T000000Z"}]
+        series = _build_country_timeseries(events, "gdelt")
+        assert series == {}
+
     def test_missing_fields_skipped(self) -> None:
         events = [{"country_id": "", "date_start": "2026-03-20"}]
         series = _build_country_timeseries(events, "ucdp")
         assert series == {}
+
+
+# ── _merge_timeseries ──────────────────────────────────────────────────────────
+
+class TestMergeTimeseries:
+    """Verify merging of two country timeseries dicts."""
+
+    def test_merges_disjoint_countries(self) -> None:
+        a = {"IL": ["2026-03-20"]}
+        b = {"YE": ["2026-03-21"]}
+        merged = _merge_timeseries(a, b)
+        assert merged["IL"] == ["2026-03-20"]
+        assert merged["YE"] == ["2026-03-21"]
+
+    def test_merges_overlapping_countries(self) -> None:
+        a = {"IL": ["2026-03-20"]}
+        b = {"IL": ["2026-03-21", "2026-03-22"]}
+        merged = _merge_timeseries(a, b)
+        assert sorted(merged["IL"]) == ["2026-03-20", "2026-03-21", "2026-03-22"]
+
+    def test_empty_inputs(self) -> None:
+        assert _merge_timeseries({}, {}) == {}
+        assert _merge_timeseries({"IL": ["2026-03-20"]}, {})["IL"] == ["2026-03-20"]
 
 
 # ── collect_conflict_signals ───────────────────────────────────────────────────
@@ -84,7 +164,7 @@ class TestCollectConflictSignals:
         with (
             patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
             patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
-            patch("collectors.conflict._fetch_acled_public", return_value=[]),
+            patch("collectors.conflict._fetch_gdelt_events", return_value=[]),
             patch("collectors.conflict.put_signal"),
         ):
             records = collect_conflict_signals()
@@ -98,7 +178,7 @@ class TestCollectConflictSignals:
         with (
             patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
             patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
-            patch("collectors.conflict._fetch_acled_public", return_value=[]),
+            patch("collectors.conflict._fetch_gdelt_events", return_value=[]),
             patch("collectors.conflict.put_signal"),
         ):
             records = collect_conflict_signals()
@@ -106,20 +186,63 @@ class TestCollectConflictSignals:
         for r in records:
             assert r.score == 0
 
-    def test_public_acled_fallback_used_when_ucdp_fails(self) -> None:
-        """Public ACLED is tried when both keyed ACLED and UCDP fail."""
+    def test_gdelt_fallback_used_when_ucdp_fails(self) -> None:
+        """GDELT is used alone when both keyed ACLED and UCDP fail."""
         from shared.region_config import ALL_REGIONS
 
         with (
             patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
             patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
-            patch("collectors.conflict._fetch_acled_public", return_value=[]) as mock_pub,
+            patch("collectors.conflict._fetch_gdelt_events", return_value=[]) as mock_gdelt,
             patch("collectors.conflict.put_signal"),
         ):
             records = collect_conflict_signals()
 
-        mock_pub.assert_called_once()
+        mock_gdelt.assert_called_once()
         assert len(records) == len(ALL_REGIONS)
+        for r in records:
+            assert r.source == "gdelt"
+
+    def test_ucdp_and_gdelt_merged_when_both_available(self) -> None:
+        """When both UCDP and GDELT succeed, source_label is 'ucdp+gdelt'."""
+        from shared.region_config import ALL_REGIONS
+        from datetime import date, timedelta
+
+        today = date.today()
+        ucdp_events = [{"country_id": "IL", "date_start": today.isoformat()}]
+        gdelt_articles = [
+            {"sourcecountry": "Yemen", "seendate": today.strftime("%Y%m%d") + "T000000Z"}
+        ]
+
+        with (
+            patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
+            patch("collectors.conflict._fetch_ucdp_events", return_value=ucdp_events),
+            patch("collectors.conflict._fetch_gdelt_events", return_value=gdelt_articles),
+            patch("collectors.conflict.put_signal"),
+        ):
+            records = collect_conflict_signals()
+
+        assert len(records) == len(ALL_REGIONS)
+        for r in records:
+            assert r.source == "ucdp+gdelt"
+
+    def test_acled_used_when_credentials_available(self) -> None:
+        """Keyed ACLED takes priority when credentials work."""
+        from shared.region_config import ALL_REGIONS
+
+        acled_events: list[dict] = []
+        with (
+            patch("collectors.conflict._fetch_acled_events", return_value=acled_events),
+            patch("collectors.conflict._fetch_ucdp_events") as mock_ucdp,
+            patch("collectors.conflict._fetch_gdelt_events") as mock_gdelt,
+            patch("collectors.conflict.put_signal"),
+        ):
+            records = collect_conflict_signals()
+
+        mock_ucdp.assert_not_called()
+        mock_gdelt.assert_not_called()
+        for r in records:
+            assert r.source == "acled"
 
 
 class TestNeighborSpillover:

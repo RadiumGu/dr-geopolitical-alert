@@ -33,11 +33,11 @@ class DashboardConstruct(Construct):
 
         regions_sorted = sorted(ALL_REGIONS, key=lambda x: -x.baseline)
 
-        # --- Single-value widgets (GPRI total per region) ---
-        sv_widgets = []
+        # --- Gauge widgets (GPRI total per region, color-coded) ---
+        gauge_widgets = []
         for r in regions_sorted:
-            sv_widgets.append(
-                cloudwatch.SingleValueWidget(
+            gauge_widgets.append(
+                cloudwatch.GaugeWidget(
                     title=f"{r.code} ({r.city}) BL:{r.baseline}",
                     metrics=[
                         cloudwatch.Metric(
@@ -48,9 +48,16 @@ class DashboardConstruct(Construct):
                             statistic="Maximum",
                         )
                     ],
-                    sparkline=True,
+                    left_y_axis=cloudwatch.YAxisProps(min=0, max=100),
+                    annotations=[
+                        cloudwatch.HorizontalAnnotation(value=0,  label="GREEN",  color="#2ca02c"),
+                        cloudwatch.HorizontalAnnotation(value=31, label="YELLOW", color="#f5c542"),
+                        cloudwatch.HorizontalAnnotation(value=51, label="ORANGE", color="#f59c42"),
+                        cloudwatch.HorizontalAnnotation(value=71, label="RED",    color="#d13212"),
+                        cloudwatch.HorizontalAnnotation(value=86, label="BLACK",  color="#1d1d1d"),
+                    ],
                     width=4,
-                    height=3,
+                    height=4,
                 )
             )
 
@@ -108,10 +115,10 @@ class DashboardConstruct(Construct):
             )
 
         # --- Assemble dashboard ---
-        # Group single-value widgets into rows of 6
-        sv_rows = []
-        for i in range(0, len(sv_widgets), 6):
-            sv_rows.append(sv_widgets[i:i + 6])
+        # Group gauge widgets into rows of 6
+        gauge_rows = []
+        for i in range(0, len(gauge_widgets), 6):
+            gauge_rows.append(gauge_widgets[i:i + 6])
 
         self.dashboard = cloudwatch.Dashboard(
             self,
@@ -126,7 +133,7 @@ class DashboardConstruct(Construct):
                     width=24,
                     height=2,
                 )],
-                *sv_rows,
+                *gauge_rows,
                 [timeline],
                 breakdown_widgets,
             ],

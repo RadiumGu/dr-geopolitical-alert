@@ -161,11 +161,17 @@ aws lambda invoke --function-name dr-alert-collector-weather --region us-west-2 
 aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /tmp/out.json
 ```
 
-After deployment, CDK outputs the **GPRI Query API URL** (Lambda Function URL). You can query it immediately.
-
 ## GPRI Query API
 
-A public, read-only API to query live GPRI scores — no authentication required.
+A read-only API to query live GPRI scores.
+
+> **⚠️ Security Note:** The public HTTP endpoint (Lambda Function URL) is **disabled by default**. The Lambda function is always deployed for internal/SDK invocation. To enable public HTTP access:
+>
+> ```bash
+> cdk deploy -c enable_api_url=true
+> ```
+>
+> The Function URL will be output as `DrGeopoliticalAlertStack.ApiGpriQueryUrl`.
 
 ### Query a single Region
 
@@ -201,7 +207,7 @@ curl "https://<your-function-url>/"
 }
 ```
 
-> The Function URL is output by `cdk deploy` as `DrGeopoliticalAlertStack.ApiGpriQueryUrl`.
+> The Function URL is output by `cdk deploy -c enable_api_url=true` as `DrGeopoliticalAlertStack.ApiGpriQueryUrl`. Without this flag, the Lambda exists but has no public endpoint — invoke it via AWS SDK or CLI only.
 
 ## AWS Resources
 

@@ -162,11 +162,17 @@ aws lambda invoke --function-name dr-alert-collector-weather --region us-west-2 
 aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /tmp/out.json
 ```
 
-部署完成后，CDK 会输出 **GPRI 查询 API URL**（Lambda Function URL），可以直接使用。
-
 ## GPRI 查询 API
 
-公开的只读 API，查询实时 GPRI 评分 —— 无需认证。
+只读 API，查询实时 GPRI 评分。
+
+> **⚠️ 安全说明：** 公开 HTTP 端点（Lambda Function URL）**默认关闭**。Lambda 函数始终部署，可通过 AWS SDK/CLI 内部调用。如需启用公开 HTTP 访问：
+>
+> ```bash
+> cdk deploy -c enable_api_url=true
+> ```
+>
+> Function URL 将在部署输出中显示为 `DrGeopoliticalAlertStack.ApiGpriQueryUrl`。
 
 ### 查询单个 Region
 
@@ -202,7 +208,7 @@ curl "https://<your-function-url>/"
 }
 ```
 
-> Function URL 在 `cdk deploy` 输出中显示为 `DrGeopoliticalAlertStack.ApiGpriQueryUrl`。
+> 使用 `cdk deploy -c enable_api_url=true` 部署时，Function URL 在输出中显示为 `DrGeopoliticalAlertStack.ApiGpriQueryUrl`。未启用时，Lambda 存在但无公网端点——仅可通过 AWS SDK 或 CLI 调用。
 
 ## AWS 资源清单
 
@@ -276,7 +282,7 @@ dr-geopolitical-alert/
 │       ├── baseline_calibrator.py  # 每周基线校准 Lambda
 │       ├── notification.py  # SNS + Slack Lambda
 │       ├── dashboard.py     # CloudWatch 仪表板
-│       └── api.py           # GPRI 查询 Lambda Function URL
+│       └── api.py           # GPRI 查询 Lambda（公网端点默认关闭）
 ├── src/                     # Lambda 源码
 │   ├── api/
 │   │   └── gpri_query.py    # 公开 GPRI 查询端点

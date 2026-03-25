@@ -276,14 +276,13 @@ curl "https://<your-function-url>/"
 | **E** | [GDACS](https://www.gdacs.org/) (UN) | `gdacs.org/xml/rss.xml` | Global disaster alerts (flood, cyclone, volcano) | ✅ Working |
 | **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | EU regulatory/sanctions changes | ✅ Working |
 | **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/) (Georgia Tech) | `api.ioda.inetintel.cc.gatech.edu` | Internet outage detection (BGP, Active Probing, Darknet) | ✅ Working |
-| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | `api.cloudflare.com/client/v4/radar/` | DDoS attacks + traffic anomaly + BGP leak detection | ✅ Working (route-leaks endpoint returns 400, under investigation) |
-
 ### Requires API Token (Free Registration)
 
-| Class | Source | How to Get Token | Env Variable | Impact if Missing |
-|-------|--------|-----------------|-------------|-------------------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | Email `mertcan.yilmaz@pcr.uu.se` ([details](https://ucdp.uu.se/apidocs/)) | `UCDP_ACCESS_TOKEN` | ✅ Token configured, but data has ~1 year delay (latest: 2024) — academic database |
-| **A** | [ACLED](https://acleddata.com/) | New site: acleddata.com; requires **Research+ tier** for API access (gmail = Open tier = no API access). OAuth-based: email + password. SSM: `/dr-alert/acled-email` + `/dr-alert/acled-password` | `ACLED_EMAIL` + `ACLED_PASSWORD` | ⚠️ Currently blocked (Open tier) — upgrade to Research+ tier for access |
+| Class | Source | How to Get Token | SSM Parameter | Status |
+|-------|--------|-----------------|--------------|--------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | Email `mertcan.yilmaz@pcr.uu.se` ([details](https://ucdp.uu.se/apidocs/)) | `/dr-alert/ucdp-access-token` | ✅ Token configured, but data has ~1 year delay (latest: 2024) — academic database |
+| **A** | [ACLED](https://acleddata.com/) | Register at acleddata.com; requires **Research+ tier** for API access (gmail = Open tier = no API). OAuth: email + password | `/dr-alert/acled-email` + `/dr-alert/acled-password` | ⚠️ Currently blocked (Open tier) — use institutional email to upgrade |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | Free [Cloudflare account](https://developers.cloudflare.com/radar/) | `/dr-alert/cf-radar-token` | ✅ Token configured (expires 2026-11-30). Note: route-leaks endpoint returns 400, under investigation |
 
 ### Known Issues
 

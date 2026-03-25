@@ -277,14 +277,13 @@ curl "https://<your-function-url>/"
 | **E** | [GDACS](https://www.gdacs.org/)（联合国） | `gdacs.org/xml/rss.xml` | 全球灾害预警（洪水、气旋、火山） | ✅ 正常 |
 | **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | 欧盟法规/制裁变更 | ✅ 正常 |
 | **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/)（乔治亚理工） | `api.ioda.inetintel.cc.gatech.edu` | 互联网中断检测（BGP、主动探测、暗网） | ✅ 正常 |
-| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | `api.cloudflare.com/client/v4/radar/` | DDoS 攻击 + 流量异常 + BGP 泄漏检测 | ✅ 正常（route-leaks 端点返回 400，排查中） |
-
 ### 需要 API Token（免费注册）
 
-| 类别 | 数据源 | 如何获取 Token | 环境变量 | 缺失影响 |
-|------|--------|---------------|---------|---------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | 发邮件至 `mertcan.yilmaz@pcr.uu.se`（[详情](https://ucdp.uu.se/apidocs/)） | `UCDP_ACCESS_TOKEN` | ✅ Token 已配置，但数据有约 1 年延迟（最新：2024）— 学术数据库 |
-| **A** | [ACLED](https://acleddata.com/) | 新网站 acleddata.com；需要 **Research+ 套餐**才能使用 API（Gmail = Open 套餐 = 无 API 访问）。OAuth 认证：邮箱 + 密码。SSM：`/dr-alert/acled-email` + `/dr-alert/acled-password` | `ACLED_EMAIL` + `ACLED_PASSWORD` | ⚠️ 当前受阻（Open 套餐）— 需升级至 Research+ 套餐 |
+| 类别 | 数据源 | 如何获取 Token | SSM 参数 | 状态 |
+|------|--------|---------------|---------|------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | 发邮件至 `mertcan.yilmaz@pcr.uu.se`（[详情](https://ucdp.uu.se/apidocs/)） | `/dr-alert/ucdp-access-token` | ✅ Token 已配置，但数据有约 1 年延迟（最新：2024）— 学术数据库 |
+| **A** | [ACLED](https://acleddata.com/) | 在 acleddata.com 注册；需要 **Research+ 套餐**才能使用 API（Gmail = Open 套餐 = 无 API）。OAuth 认证：邮箱 + 密码 | `/dr-alert/acled-email` + `/dr-alert/acled-password` | ⚠️ 当前受阻（Open 套餐）— 使用机构邮箱注册可升级 |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | 免费 [Cloudflare 账号](https://developers.cloudflare.com/radar/) | `/dr-alert/cf-radar-token` | ✅ Token 已配置（有效期至 2026-11-30）。注：route-leaks 端点返回 400，排查中 |
 
 ### 已知问题
 

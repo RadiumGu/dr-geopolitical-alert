@@ -229,26 +229,37 @@ curl "https://<your-function-url>/"
 | CloudWatch Alarm | ~$0.10 | 1 alarm |
 | **Total** | **~$6–11/month** | No NAT Gateway, no VPC, no reserved capacity |
 
-> All external data sources (UCDP, ACLED, abuse.ch, RIPE Atlas, Open-Meteo, USGS, GDACS, IODA, OFAC, State Dept) are **free public APIs** — no API keys or subscriptions required.
+> Most external data sources are **free public APIs**. Some require API tokens for full functionality — see the Data Sources section below.
 
 ## Data Sources
 
-All signal collectors use **free, public APIs** with no authentication required (except optional Cloudflare Radar for future D-class enhancement):
+### Free — No Authentication Required
 
-| Class | Source | API Endpoint | What It Provides |
-|-------|--------|-------------|-----------------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | `https://ucdpapi.pcr.uu.se/api/gedevents/` | Georeferenced armed conflict events |
-| **A** | [ACLED](https://acleddata.com/) (fallback) | `https://api.acleddata.com/acled/read` | Political violence & protest events |
-| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt` | Botnet C2 IP blocklist |
-| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | `https://urlhaus-api.abuse.ch/v1/urls/recent/` | Malware distribution URLs |
-| **C** | [US State Dept Travel Advisory](https://travel.state.gov/) | `https://travel.state.gov/_res/rss/TAsTWs.xml` | Country travel risk levels (1–4) |
-| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `https://atlas.ripe.net/api/v2/probes/` | Network probe connectivity by country |
-| **E** | [Open-Meteo](https://open-meteo.com/) | `https://api.open-meteo.com/v1/forecast` | Extreme weather alerts (batch API) |
-| **E** | [USGS Earthquake](https://earthquake.usgs.gov/) | `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson` | Significant seismic events |
-| **E** | [GDACS](https://www.gdacs.org/) | `https://www.gdacs.org/xml/rss.xml` | Global disaster alerts (flood, cyclone, volcano) |
-| **F** | [OFAC SDN](https://ofac.treasury.gov/) | `https://sanctionssearch.ofac.treas.gov/` (RSS) | US sanctions updates |
-| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `https://eur-lex.europa.eu/rss/...` | EU regulatory changes |
-| **G** | [IODA (CAIDA)](https://ioda.inetintelligence.cc/) | `https://api.ioda.inetintelligence.cc/v2/signals/raw/country/` | Internet outage detection (BGP, Active Probing, Darknet) |
+| Class | Source | API Endpoint | What It Provides | Status |
+|-------|--------|-------------|-----------------|--------|
+| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `feodotracker.abuse.ch` | Botnet C2 IP blocklist | ✅ Working |
+| **C** | [US State Dept Travel Advisory](https://travel.state.gov/) | `travel.state.gov` RSS | Country travel risk levels (1–4) | ✅ Working |
+| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `atlas.ripe.net/api/v2/probes/` | Network probe connectivity by country | ✅ Working |
+| **E** | [Open-Meteo](https://open-meteo.com/) | `api.open-meteo.com/v1/forecast` | Extreme weather alerts (batch API) | ✅ Working |
+| **E** | [USGS Earthquake](https://earthquake.usgs.gov/) | `earthquake.usgs.gov` GeoJSON | Significant seismic events | ✅ Working |
+| **E** | [GDACS](https://www.gdacs.org/) (UN) | `gdacs.org/xml/rss.xml` | Global disaster alerts (flood, cyclone, volcano) | ✅ Working |
+| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | EU regulatory/sanctions changes | ✅ Working |
+| **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/) (Georgia Tech) | `api.ioda.inetintel.cc.gatech.edu` | Internet outage detection (BGP, Active Probing, Darknet) | ✅ Working |
+
+### Requires API Token (Free Registration)
+
+| Class | Source | How to Get Token | Env Variable | Impact if Missing |
+|-------|--------|-----------------|-------------|-------------------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | Email `mertcan.yilmaz@pcr.uu.se` ([details](https://ucdp.uu.se/apidocs/)) | `UCDP_ACCESS_TOKEN` | ⚠️ **A-class blind** — no armed conflict data (0–20 points missing) |
+| **A** | [ACLED](https://acleddata.com/) (fallback) | Register at [developer.acleddata.com](https://developer.acleddata.com/) | `ACLED_API_KEY` + `ACLED_EMAIL` | Backup for UCDP; more granular conflict data |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | Free [Cloudflare account](https://developers.cloudflare.com/radar/) | `CF_RADAR_TOKEN` | Optional — adds DDoS + traffic anomaly + BGP leak detection; IODA covers the basics |
+
+### Known Issues
+
+| Class | Source | Issue |
+|-------|--------|-------|
+| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | API returning 401; may need endpoint migration |
+| **F** | [OFAC SDN](https://ofac.treasury.gov/) | Connection timeout from non-US regions; possible geo-blocking |
 
 ## Project Structure
 

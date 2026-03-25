@@ -230,26 +230,37 @@ curl "https://<your-function-url>/"
 | CloudWatch 告警 | ~$0.10 | 1 个告警 |
 | **合计** | **约 $6–11/月** | 无 NAT Gateway、无 VPC、无预留容量 |
 
-> 所有外部数据源（UCDP、ACLED、abuse.ch、RIPE Atlas、Open-Meteo、USGS、GDACS、IODA、OFAC、State Dept）均为**免费公开 API**——无需 API Key 或付费订阅。
+> 大部分外部数据源为**免费公开 API**。部分数据源需要申请 API Token 才能获取完整数据——详见下方数据源章节。
 
 ## 数据源
 
-所有信号采集器使用**免费公开 API**，无需认证（Cloudflare Radar 为未来 D 类增强选项，需 API token）：
+### 免费 — 无需认证
 
-| 类别 | 数据源 | API 端点 | 提供内容 |
-|------|--------|---------|---------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | `https://ucdpapi.pcr.uu.se/api/gedevents/` | 地理编码武装冲突事件 |
-| **A** | [ACLED](https://acleddata.com/)（降级） | `https://api.acleddata.com/acled/read` | 政治暴力与抗议事件 |
-| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt` | 僵尸网络 C2 IP 黑名单 |
-| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | `https://urlhaus-api.abuse.ch/v1/urls/recent/` | 恶意软件分发 URL |
-| **C** | [美国国务院旅行预警](https://travel.state.gov/) | `https://travel.state.gov/_res/rss/TAsTWs.xml` | 国家旅行风险等级 (1–4) |
-| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `https://atlas.ripe.net/api/v2/probes/` | 各国网络探针连接率 |
-| **E** | [Open-Meteo](https://open-meteo.com/) | `https://api.open-meteo.com/v1/forecast` | 极端天气预警（批量 API） |
-| **E** | [USGS 地震](https://earthquake.usgs.gov/) | `https://earthquake.usgs.gov/.../significant_week.geojson` | 重大地震事件 |
-| **E** | [GDACS](https://www.gdacs.org/) | `https://www.gdacs.org/xml/rss.xml` | 全球灾害预警（洪水、气旋、火山） |
-| **F** | [OFAC SDN](https://ofac.treasury.gov/) | `https://sanctionssearch.ofac.treas.gov/`（RSS） | 美国制裁名单更新 |
-| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `https://eur-lex.europa.eu/rss/...` | 欧盟法规变更 |
-| **G** | [IODA (CAIDA)](https://ioda.inetintelligence.cc/) | `https://api.ioda.inetintelligence.cc/v2/signals/raw/country/` | 互联网中断检测（BGP、主动探测、暗网） |
+| 类别 | 数据源 | API 端点 | 提供内容 | 状态 |
+|------|--------|---------|---------|------|
+| **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `feodotracker.abuse.ch` | 僵尸网络 C2 IP 黑名单 | ✅ 正常 |
+| **C** | [美国国务院旅行预警](https://travel.state.gov/) | `travel.state.gov` RSS | 国家旅行风险等级 (1–4) | ✅ 正常 |
+| **D** | [RIPE Atlas](https://atlas.ripe.net/) | `atlas.ripe.net/api/v2/probes/` | 各国网络探针连接率 | ✅ 正常 |
+| **E** | [Open-Meteo](https://open-meteo.com/) | `api.open-meteo.com/v1/forecast` | 极端天气预警（批量 API） | ✅ 正常 |
+| **E** | [USGS 地震](https://earthquake.usgs.gov/) | `earthquake.usgs.gov` GeoJSON | 重大地震事件 | ✅ 正常 |
+| **E** | [GDACS](https://www.gdacs.org/)（联合国） | `gdacs.org/xml/rss.xml` | 全球灾害预警（洪水、气旋、火山） | ✅ 正常 |
+| **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | 欧盟法规/制裁变更 | ✅ 正常 |
+| **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/)（乔治亚理工） | `api.ioda.inetintel.cc.gatech.edu` | 互联网中断检测（BGP、主动探测、暗网） | ✅ 正常 |
+
+### 需要 API Token（免费注册）
+
+| 类别 | 数据源 | 如何获取 Token | 环境变量 | 缺失影响 |
+|------|--------|---------------|---------|---------|
+| **A** | [UCDP GED](https://ucdp.uu.se/) | 发邮件至 `mertcan.yilmaz@pcr.uu.se`（[详情](https://ucdp.uu.se/apidocs/)） | `UCDP_ACCESS_TOKEN` | ⚠️ **A 类失明** — 无武装冲突数据（缺失 0–20 分） |
+| **A** | [ACLED](https://acleddata.com/)（备选） | 在 [developer.acleddata.com](https://developer.acleddata.com/) 注册 | `ACLED_API_KEY` + `ACLED_EMAIL` | UCDP 的备份；数据更细粒度 |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | 免费 [Cloudflare 账号](https://developers.cloudflare.com/radar/) | `CF_RADAR_TOKEN` | 可选 — 增加 DDoS + 流量异常 + BGP 泄漏检测；IODA 已覆盖基本面 |
+
+### 已知问题
+
+| 类别 | 数据源 | 问题 |
+|------|--------|------|
+| **B** | [abuse.ch URLhaus](https://urlhaus.abuse.ch/) | API 返回 401；可能需要迁移端点 |
+| **F** | [OFAC SDN](https://ofac.treasury.gov/) | 非美国地区连接超时；可能存在地理限制 |
 
 ## 项目结构
 

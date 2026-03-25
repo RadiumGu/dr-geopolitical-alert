@@ -6,6 +6,7 @@ from aws_cdk import (
     aws_events_targets as targets,
     aws_lambda as lambda_,
     aws_sqs as sqs,
+    aws_ssm as ssm,
 )
 from constructs import Construct
 
@@ -44,6 +45,14 @@ class CollectorsConstruct(Construct):
             if dlq:
                 kwargs["dead_letter_queue"] = dlq
 
+            env = {"SIGNALS_TABLE": SIGNALS_TABLE_NAME}
+
+            # BGP collector needs Cloudflare Radar token (from SSM)
+            if name == "bgp":
+                env["CF_RADAR_TOKEN"] = ssm.StringParameter.value_from_lookup(
+                    self, "/dr-alert/cf-radar-token"
+                )
+
             fn = lambda_.Function(
                 self,
                 f"{name.capitalize()}Collector",
@@ -54,9 +63,7 @@ class CollectorsConstruct(Construct):
                 code=code,
                 memory_size=256,
                 timeout=Duration.seconds(60),
-                environment={
-                    "SIGNALS_TABLE": SIGNALS_TABLE_NAME,
-                },
+                environment=env,
                 **kwargs,
             )
 

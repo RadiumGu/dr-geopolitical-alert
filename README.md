@@ -41,6 +41,21 @@ Traditional DR monitoring only detects failures after they happen. This system a
 | **F** | Compliance/Regulatory | 10 | OFAC RSS + EU Official Journal | 10 min |
 | **G** | BGP/Backbone | 15 | IODA + Cloudflare Radar | 10 min |
 
+### A-Class: Armed Conflict — Data Source Strategy
+
+A-class carries the **highest weight (20 points)** because armed conflict is the strongest predictor of AWS Region disruption. The data source priority chain reflects a deliberate trade-off between **coverage, latency, and access**:
+
+| Priority | Source | Strengths | Limitations |
+|----------|--------|-----------|-------------|
+| 1st | **ACLED** | Gold standard for conflict data. Event-level granularity (battles, explosions, violence against civilians). Daily updates. Country-specific queries. Used by UN, World Bank, and major geopolitical risk platforms. | Requires **Research+ tier** (institutional email). Free gmail accounts get Open tier = no API access. |
+| 2nd | **UCDP + GDELT** (merged) | UCDP: academic rigor, precise fatality counts. GDELT: real-time (15-min updates), free, no auth. Merging both gives broader coverage. | UCDP has ~1 year data delay (academic publication cycle). GDELT is media-based — biased toward English-language coverage, under-represents Middle East/Africa. |
+| 3rd | **UCDP alone** | Still useful for historical baseline and trend analysis. | No real-time data. |
+| 4th | **GDELT alone** | Real-time fallback. | Limited country coverage (global query returns 250 articles, small countries get drowned out by US/China/India). |
+
+> **⚠️ Without ACLED, A-class scores for Middle East regions (UAE, Bahrain) will be near zero** — UCDP data is delayed ~1 year, and GDELT's global query doesn't capture enough regional conflict events. Configuring ACLED credentials (Research+ tier) is **strongly recommended** for production use.
+
+The system also applies **neighbor spillover** effects: conflict in Syria boosts Israel's A-class score via distance-weighted propagation (NEIGHBOR_MAP covers 12 countries).
+
 ## GPRI Scoring
 
 ```

@@ -48,6 +48,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-northeast-1", baseline=13)
@@ -64,6 +65,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("us-east-1", baseline=5)
@@ -78,6 +80,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("eu-west-1", baseline=25)
@@ -92,6 +95,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-southeast-1", baseline=20)
@@ -106,6 +110,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-northeast-1", baseline=10)
@@ -119,6 +124,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-northeast-1", baseline=10)
@@ -131,6 +137,7 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=GpriLevel.YELLOW),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-northeast-1", baseline=5)
@@ -145,9 +152,24 @@ class TestCalcGpri:
         with (
             patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
             patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=0),
         ):
             from engine.gpri_calculator import _calc_gpri
             record = _calc_gpri("ap-northeast-1", baseline=5)
 
         assert record.components["A"] == 7
         assert record.components["B"] == 3
+
+    def test_baseline_delta_applied(self) -> None:
+        """Dynamic baseline delta is added to static baseline."""
+        signals = _zero_signals()
+        with (
+            patch("engine.gpri_calculator.get_latest_signals", return_value=signals),
+            patch("engine.gpri_calculator.get_previous_level", return_value=None),
+            patch("engine.gpri_calculator.get_baseline_delta", return_value=3),
+        ):
+            from engine.gpri_calculator import _calc_gpri
+            record = _calc_gpri("ap-northeast-1", baseline=10)
+
+        assert record.gpri == 13  # 10 + 3
+        assert record.baseline == 13  # effective baseline stored

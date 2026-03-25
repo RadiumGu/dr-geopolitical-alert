@@ -13,6 +13,7 @@ from constructs_.gpri_engine import GpriEngineConstruct
 from constructs_.notification import NotificationConstruct
 from constructs_.dashboard import DashboardConstruct
 from constructs_.api import ApiConstruct
+from constructs_.baseline_calibrator import BaselineCalibratorConstruct
 
 
 class DrGeopoliticalAlertStack(Stack):
@@ -57,7 +58,17 @@ class DrGeopoliticalAlertStack(Stack):
         # 6. Public GPRI Query API (Lambda Function URL)
         api = ApiConstruct(self, "Api", gpri_table=tables.gpri_table)
 
-        # 7. DLQ Alarm — fires when any Lambda sends a failed event to DLQ
+        # 7. Weekly Baseline Calibrator
+        calibrator = BaselineCalibratorConstruct(
+            self,
+            "Calibrator",
+            signals_table=tables.signals_table,
+            gpri_table=tables.gpri_table,
+            sns_topic=notification.topic,
+            dlq=dlq,
+        )
+
+        # 8. DLQ Alarm — fires when any Lambda sends a failed event to DLQ
         dlq_alarm = cloudwatch.Alarm(
             self,
             "DlqAlarm",

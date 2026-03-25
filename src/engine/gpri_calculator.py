@@ -20,7 +20,7 @@ import boto3
 
 from shared.types import SignalClass, GpriLevel, GpriRecord, gpri_to_level
 from shared.region_config import ALL_REGIONS, REGION_MAP
-from shared.db import get_latest_signals, put_gpri, get_previous_level
+from shared.db import get_latest_signals, put_gpri, get_previous_level, get_baseline_delta
 from engine.adjudication import adjudicate
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,12 @@ def _calc_gpri(region_code: str, baseline: int) -> GpriRecord:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     signals = get_latest_signals(region_code)
 
-    # Sum baseline + weighted signal scores (D-class weight=0 while suspended)
-    total = baseline
+    # Apply dynamic baseline delta from weekly calibration
+    delta = get_baseline_delta(region_code)
+    effective_baseline = baseline + delta
+
+    # Sum effective baseline + weighted signal scores
+    total = effective_baseline
     for cls in SignalClass:
         total += int(signals.get(cls.value, 0) * _SIGNAL_WEIGHTS.get(cls.value, 1.0))
     total = min(total, 100)
@@ -88,7 +92,7 @@ def _calc_gpri(region_code: str, baseline: int) -> GpriRecord:
         level=level,
         prev_level=prev_level,
         components=signals,
-        baseline=baseline,
+        baseline=effective_baseline,
         compliance_block=compliance_block,
         timestamp=now,
     )

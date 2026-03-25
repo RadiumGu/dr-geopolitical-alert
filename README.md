@@ -49,7 +49,15 @@ GPRI = Baseline + Σ(Signal_i × Weight_i)    capped at 100
 
 ### Baseline Score
 
-Each Region has a **static baseline** (0–25) reflecting inherent geopolitical risk. Baselines are pre-assigned based on 5 factors:
+Each Region has a **static baseline** (0–25) reflecting inherent geopolitical risk, plus a **dynamic delta** (±5) that adjusts weekly based on observed signal trends.
+
+```
+effective_baseline = static_baseline + dynamic_delta
+```
+
+#### Static Baseline
+
+Baselines are pre-assigned based on 5 factors:
 
 | Factor | Examples |
 |--------|----------|
@@ -72,6 +80,35 @@ Each Region has a **static baseline** (0–25) reflecting inherent geopolitical 
 | 8–9 | 🇹🇭 ap-southeast-6, 🇦🇺 ap-southeast-4, 🇳🇿 ap-southeast-5, 🇲🇾 ap-southeast-7, 🇮🇹 eu-south-1, 🇪🇸 eu-south-2 |
 | 5–6 | 🇯🇵 ap-northeast-1/3, 🇰🇷 ap-northeast-2 |
 | 2–4 | 🇺🇸 us-east-1/2, us-west-1/2, 🇨🇦 ca-central-1, ca-west-1, 🇩🇪 eu-central-1, 🇬🇧 eu-west-2, 🇫🇷 eu-west-3, 🇸🇪 eu-north-1, 🇦🇺 ap-southeast-2, 🇨🇭 eu-central-2, 🇮🇪 eu-west-1, 🇸🇬 ap-southeast-1 |
+
+#### Dynamic Baseline Calibration
+
+A weekly calibration Lambda (`dr-alert-baseline-calibrator`) automatically adjusts each Region's baseline by computing a **dynamic delta** based on 30-day signal history:
+
+1. **Every Sunday 00:00 UTC**, for each Region:
+   - Query the last 30 days of signal scores across all 7 dimensions (A–G)
+   - Compute the **median** score per dimension (robust against outliers), then sum them
+   - Calculate: `deviation = signal_median_sum - static_baseline`
+   - Apply damping: `delta = clamp(round(deviation × 0.3), -5, +5)`
+   - Store delta in DynamoDB (`CONFIG#baseline_delta`)
+
+2. **The GPRI calculator** reads the delta every 5-minute cycle:
+   ```
+   effective_baseline = static_baseline + delta
+   GPRI = effective_baseline + Σ(signals)
+   ```
+
+**Design constraints:**
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Frequency | Weekly (Sunday 00:00 UTC) | Geopolitical shifts are slow variables; weekly prevents noise-driven drift |
+| Lookback | 30 days (~4,300 samples/region) | Statistically robust, captures sustained trends |
+| Damping | 0.3 | A 10-point deviation only moves delta by 3 — smooth transitions |
+| Max delta | ±5 | Tel Aviv (25) can't drift to Oregon (2) levels |
+| Aggregation | Median (not mean) | A single extreme event won't skew the baseline |
+| Min samples | 50 | Below this, calibration is skipped (keeps existing delta) |
+| SNS notification | On delta change only | Auditable; no spam when baselines are stable |
 
 ### Risk Levels
 
@@ -170,9 +207,9 @@ curl "https://<your-function-url>/"
 
 | Resource | Count | Purpose |
 |----------|-------|---------|
-| Lambda Functions | 10 | 7 collectors + 1 GPRI engine + 1 Slack notifier + 1 API query |
+| Lambda Functions | 11 | 7 collectors + 1 GPRI engine + 1 baseline calibrator + 1 Slack notifier + 1 API query |
 | DynamoDB Tables | 2 | `dr-alert-signals` + `dr-alert-gpri` |
-| EventBridge Rules | 8 | 7 × 10min (collectors) + 1 × 5min (GPRI) |
+| EventBridge Rules | 9 | 7 × 10min (collectors) + 1 × 5min (GPRI) + 1 weekly (calibrator) |
 | SNS Topic | 1 | GPRI level change alerts |
 | SQS Queue | 1 | Dead Letter Queue for failed invocations |
 | CloudWatch Dashboard | 1 | 39 widgets, all 34 Regions |
@@ -224,6 +261,7 @@ dr-geopolitical-alert/
 │       ├── tables.py        # DynamoDB tables
 │       ├── collectors.py    # 7 Lambda + EventBridge
 │       ├── gpri_engine.py   # GPRI calculator Lambda
+│       ├── baseline_calibrator.py  # Weekly baseline calibration Lambda
 │       ├── notification.py  # SNS + Slack Lambda
 │       ├── dashboard.py     # CloudWatch Dashboard
 │       └── api.py           # GPRI Query Lambda Function URL
@@ -233,6 +271,7 @@ dr-geopolitical-alert/
 │   ├── collectors/          # 7 signal collectors (A–G)
 │   ├── engine/
 │   │   ├── gpri_calculator.py
+│   │   ├── baseline_calibrator.py  # Weekly dynamic baseline calibration
 │   │   └── adjudication.py  # Multi-signal cross-validation
 │   ├── notify/
 │   │   └── slack_dispatcher.py

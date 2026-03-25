@@ -50,7 +50,15 @@ GPRI = 基线分 + Σ(信号_i × 权重_i)    上限 100
 
 ### 基线分说明
 
-每个 Region 的基线分（0–25）根据所在国家/地区的固有风险预设，评估维度：
+每个 Region 的基线分（0–25）根据所在国家/地区的固有风险预设，同时叠加一个**动态修正项**（±5），每周根据历史信号数据自动校准。
+
+```
+有效基线 = 静态基线 + 动态修正（delta）
+```
+
+#### 静态基线
+
+评估维度：
 
 | 评估因素 | 说明 |
 |---------|------|
@@ -73,6 +81,35 @@ GPRI = 基线分 + Σ(信号_i × 权重_i)    上限 100
 | 8–9 | 🇹🇭 ap-southeast-6, 🇦🇺 ap-southeast-4, 🇳🇿 ap-southeast-5, 🇲🇾 ap-southeast-7, 🇮🇹 eu-south-1, 🇪🇸 eu-south-2 |
 | 5–6 | 🇯🇵 ap-northeast-1/3, 🇰🇷 ap-northeast-2 |
 | 2–4 | 🇺🇸 us-east-1/2, us-west-1/2, 🇨🇦 ca-central-1, ca-west-1, 🇩🇪 eu-central-1, 🇬🇧 eu-west-2, 🇫🇷 eu-west-3, 🇸🇪 eu-north-1, 🇦🇺 ap-southeast-2, 🇨🇭 eu-central-2, 🇮🇪 eu-west-1, 🇸🇬 ap-southeast-1 |
+
+#### 动态基线校准
+
+每周一次的校准 Lambda（`dr-alert-baseline-calibrator`）根据 30 天历史信号数据自动调整各 Region 的基线：
+
+1. **每周日 00:00 UTC** 执行，对每个 Region：
+   - 查询过去 30 天全部 7 个维度（A–G）的信号评分
+   - 计算每个维度的**中位数**（抗异常值干扰），然后求和
+   - 计算偏差：`偏差 = 信号中位数之和 - 静态基线`
+   - 应用阻尼系数：`delta = clamp(round(偏差 × 0.3), -5, +5)`
+   - 存入 DynamoDB（`CONFIG#baseline_delta`）
+
+2. **GPRI 计算器** 每 5 分钟读取 delta：
+   ```
+   有效基线 = 静态基线 + delta
+   GPRI = 有效基线 + Σ(信号分)
+   ```
+
+**设计约束：**
+
+| 参数 | 取值 | 原因 |
+|------|------|------|
+| 频率 | 每周（周日 00:00 UTC） | 地缘风险是慢变量，每周可防止噪音导致的漂移 |
+| 回看窗口 | 30 天（约 4,300 个样本/Region） | 统计可靠，能捕捉持续趋势 |
+| 阻尼系数 | 0.3 | 10 分偏差只动 3 分 —— 平滑过渡 |
+| delta 上限 | ±5 | Tel Aviv(25) 不会漂移到 Oregon(2) 的水平 |
+| 聚合方式 | 中位数（非均值） | 一次极端事件不会拉飞基线 |
+| 最少样本 | 50 | 数据不足时跳过校准（保留现有 delta） |
+| SNS 通知 | 仅在 delta 变化时 | 可审计；基线稳定时不打扰 |
 
 ### 风险等级
 
@@ -171,9 +208,9 @@ curl "https://<your-function-url>/"
 
 | 资源 | 数量 | 用途 |
 |------|------|------|
-| Lambda 函数 | 10 | 7 采集器 + 1 GPRI 引擎 + 1 Slack 通知 + 1 API 查询 |
+| Lambda 函数 | 11 | 7 采集器 + 1 GPRI 引擎 + 1 基线校准器 + 1 Slack 通知 + 1 API 查询 |
 | DynamoDB 表 | 2 | `dr-alert-signals` + `dr-alert-gpri` |
-| EventBridge 规则 | 8 | 7 × 10分钟（采集器）+ 1 × 5分钟（GPRI） |
+| EventBridge 规则 | 9 | 7 × 10分钟（采集器）+ 1 × 5分钟（GPRI）+ 1 × 每周（校准器） |
 | SNS Topic | 1 | GPRI 等级变化告警 |
 | SQS 队列 | 1 | 死信队列（失败调用） |
 | CloudWatch 仪表板 | 1 | 39 个 widget，覆盖全部 34 Region |
@@ -225,6 +262,7 @@ dr-geopolitical-alert/
 │       ├── tables.py        # DynamoDB 表定义
 │       ├── collectors.py    # 7 Lambda + EventBridge 调度
 │       ├── gpri_engine.py   # GPRI 计算 Lambda
+│       ├── baseline_calibrator.py  # 每周基线校准 Lambda
 │       ├── notification.py  # SNS + Slack Lambda
 │       ├── dashboard.py     # CloudWatch 仪表板
 │       └── api.py           # GPRI 查询 Lambda Function URL
@@ -234,6 +272,7 @@ dr-geopolitical-alert/
 │   ├── collectors/          # 7 个信号采集器（A–G 类）
 │   ├── engine/
 │   │   ├── gpri_calculator.py
+│   │   ├── baseline_calibrator.py  # 每周动态基线校准
 │   │   └── adjudication.py  # 多信号交叉验证
 │   ├── notify/
 │   │   └── slack_dispatcher.py

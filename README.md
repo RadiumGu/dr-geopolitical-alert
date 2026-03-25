@@ -147,16 +147,44 @@ CDK_DEPLOY_REGION=eu-west-1 cdk deploy
 
 The stack deploys to **us-west-2 (Oregon)** — independent from monitored Regions for control-plane isolation.
 
-### Post-Deploy
+### Post-Deploy: Configure API Tokens
+
+All tokens are stored in **SSM Parameter Store** (not in code). Set them before or after deployment:
 
 ```bash
-# Set Slack webhook for notifications
-aws ssm put-parameter \
-  --name "/dr-alert/slack-webhook-url" \
-  --value "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
-  --type String --region us-west-2 --overwrite
+REGION=us-west-2  # your deploy region
 
-# Manual trigger to verify
+# [Required] Slack webhook for alert notifications
+aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
+    --value "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
+    --type String --region $REGION --overwrite
+
+# [Required] UCDP token — A-class armed conflict data (email mertcan.yilmaz@pcr.uu.se to get one)
+aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
+    --value "<your-ucdp-token>" --type String --region $REGION --overwrite
+
+# [Optional] ACLED credentials — A-class fallback (register at developer.acleddata.com)
+aws ssm put-parameter --name "/dr-alert/acled-api-key" \
+    --value "<your-acled-key>" --type String --region $REGION --overwrite
+aws ssm put-parameter --name "/dr-alert/acled-email" \
+    --value "<your-email>" --type String --region $REGION --overwrite
+
+# [Optional] Cloudflare Radar — G-class DDoS/BGP leak detection (free Cloudflare account)
+aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
+    --value "<your-cf-token>" --type String --region $REGION --overwrite
+```
+
+After setting tokens, **redeploy** to inject them into Lambda environment variables:
+
+```bash
+cdk deploy
+```
+
+> **Note:** Tokens in SSM are read at deploy time and injected as Lambda env vars. If you add/change a token, re-run `cdk deploy` to pick up the change.
+
+### Manual Trigger to Verify
+
+```bash
 aws lambda invoke --function-name dr-alert-collector-weather --region us-west-2 /tmp/out.json
 aws lambda invoke --function-name dr-alert-gpri-calculator --region us-west-2 /tmp/out.json
 ```

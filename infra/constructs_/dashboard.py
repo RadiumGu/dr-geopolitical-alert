@@ -26,12 +26,17 @@ NS = "DrAlert/GPRI"
 
 
 class DashboardConstruct(Construct):
-    """CloudWatch Dashboard with 39 widgets covering all 34 Regions."""
+    """CloudWatch Dashboard covering all 34 Regions with GPRI gauges and A-G signal breakdowns."""
 
     def __init__(self, scope: Construct, id: str) -> None:
         super().__init__(scope, id)
 
         regions_sorted = sorted(ALL_REGIONS, key=lambda x: -x.baseline)
+
+        signal_classes = [
+            ("A", "A"), ("B", "B"), ("C", "C"), ("D", "D"),
+            ("E", "E"), ("F", "F"), ("G", "G"),
+        ]
 
         # --- Gauge widgets (GPRI total per region, color-coded) ---
         gauge_widgets = []
@@ -72,7 +77,30 @@ class DashboardConstruct(Construct):
                         ),
                     ],
                     width=4,
-                    height=6,
+                    height=5,
+                )
+            )
+
+        # --- Per-region signal class breakdown (A-G) ---
+        signal_svw_widgets = []
+        for r in regions_sorted:
+            signal_svw_widgets.append(
+                cloudwatch.SingleValueWidget(
+                    title=f"{r.code} Signals A-G",
+                    metrics=[
+                        cloudwatch.Metric(
+                            namespace=NS,
+                            metric_name="SignalScore",
+                            dimensions_map={"Region": r.code, "Class": cls},
+                            period=Duration.minutes(5),
+                            statistic="Maximum",
+                            label=label,
+                        )
+                        for cls, label in signal_classes
+                    ],
+                    sparkline=False,
+                    width=4,
+                    height=3,
                 )
             )
 
@@ -102,14 +130,14 @@ class DashboardConstruct(Construct):
             ],
         )
 
-        # --- Signal breakdown: top 3 ---
-        signal_classes = [
+        # --- Signal breakdown: top 3 stacked graph (detail view) ---
+        top3_breakdown_widgets = []
+        top3_signal_classes = [
             ("A", "Conflict"), ("B", "Cyber"), ("C", "Political"),
             ("D", "Infra"), ("E", "Weather"), ("F", "Compliance"), ("G", "BGP"),
         ]
-        breakdown_widgets = []
         for r in regions_sorted[:3]:
-            breakdown_widgets.append(
+            top3_breakdown_widgets.append(
                 cloudwatch.GraphWidget(
                     title=f"Real-Time Signals Only (excl. Baseline) — {r.code} ({r.city})",
                     left=[
@@ -121,7 +149,7 @@ class DashboardConstruct(Construct):
                             statistic="Maximum",
                             label=label,
                         )
-                        for cls, label in signal_classes
+                        for cls, label in top3_signal_classes
                     ],
                     stacked=True,
                     width=8,
@@ -130,10 +158,11 @@ class DashboardConstruct(Construct):
             )
 
         # --- Assemble dashboard ---
-        # Group gauge widgets into rows of 6
-        gauge_rows = []
+        # Interleave gauge rows and signal-breakdown rows (6 regions per row)
+        region_rows: list[list] = []
         for i in range(0, len(gauge_widgets), 6):
-            gauge_rows.append(gauge_widgets[i:i + 6])
+            region_rows.append(gauge_widgets[i:i + 6])
+            region_rows.append(signal_svw_widgets[i:i + 6])
 
         self.dashboard = cloudwatch.Dashboard(
             self,
@@ -150,8 +179,8 @@ class DashboardConstruct(Construct):
                     width=24,
                     height=2,
                 )],
-                *gauge_rows,
+                *region_rows,
                 [timeline],
-                breakdown_widgets,
+                top3_breakdown_widgets,
             ],
         )

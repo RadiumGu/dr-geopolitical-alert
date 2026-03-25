@@ -4,7 +4,7 @@ Data sources:
   - IODA API (Internet Outage Detection and Analysis, free):
     https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw
   - Cloudflare Radar (optional, requires CF_RADAR_TOKEN env var):
-    https://api.cloudflare.com/client/v4/radar/bgp/route-leaks/events
+    https://api.cloudflare.com/client/v4/radar/bgp/hijacks/events
 
 Scoring (0-15):
   Active outage (IODA score drop >= 50%)  → 10-15
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 MAX_SCORE = 15
 _IODA_URL = "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw"
-_CF_RADAR_URL = "https://api.cloudflare.com/client/v4/radar/bgp/route-leaks/events"
+_CF_RADAR_URL = "https://api.cloudflare.com/client/v4/radar/bgp/hijacks/events"
 
 def _fetch_ioda_signals(iso2: str) -> dict[str, Any]:
     """Fetch IODA raw signals for a country."""
@@ -109,8 +109,8 @@ def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     return min(score, MAX_SCORE), detail
 
 
-def _fetch_cf_radar_leaks(iso2: str) -> list[dict[str, Any]]:
-    """Fetch Cloudflare Radar BGP route-leak events for a country (optional)."""
+def _fetch_cf_radar_hijacks(iso2: str) -> list[dict[str, Any]]:
+    """Fetch Cloudflare Radar BGP hijack events and filter by country."""
     token = get_secret("/dr-alert/cf-radar-token")
     if not token:
         return []
@@ -118,26 +118,38 @@ def _fetch_cf_radar_leaks(iso2: str) -> list[dict[str, Any]]:
     data = get_json(
         _CF_RADAR_URL,
         params={
-            "involvedCountry": iso2,
             "dateRange": "1d",
-            "limit": 10,
+            "per_page": 50,
         },
         headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
     )
-    return data.get("result", {}).get("events", [])
+    events = data.get("result", {}).get("events", [])
+    # Filter: victim country or hijacker country matches
+    iso_upper = iso2.upper()
+    return [
+        e for e in events
+        if iso_upper in (e.get("victim_countries") or [])
+        or e.get("hijacker_country") == iso_upper
+    ]
 
 
-def _score_cf_leaks(leaks: list[dict[str, Any]]) -> int:
-    """Add to score if Cloudflare detects BGP leaks for the country."""
-    if not leaks:
+def _score_cf_hijacks(hijacks: list[dict[str, Any]]) -> int:
+    """Add to score if Cloudflare detects BGP hijacks for the country."""
+    if not hijacks:
         return 0
-    return min(3 + len(leaks), 8)
+    # Weight by confidence score
+    high_conf = sum(1 for h in hijacks if (h.get("confidence_score", 0) or 0) >= 8)
+    if high_conf >= 3:
+        return min(5 + high_conf, 8)
+    return min(3 + len(hijacks), 7)
 
 
-def _fetch_country_signals(iso2: str) -> tuple[int, dict[str, Any], int]:
+def _fetch_country_signals(iso2: str, cf_events_cache: list[dict[str, Any]] | None = None) -> tuple[int, dict[str, Any], int]:
     """Fetch and score IODA + CF Radar for a single ISO-2 country.
 
     Returns (ioda_score, ioda_detail, cf_score).
+    cf_events_cache: pre-fetched global hijack events list (avoids per-country API calls).
     """
     try:
         ioda_data = _fetch_ioda_signals(iso2)
@@ -146,12 +158,22 @@ def _fetch_country_signals(iso2: str) -> tuple[int, dict[str, Any], int]:
         logger.warning("IODA fetch failed for %s: %s", iso2, exc)
         ioda_score, ioda_detail = 0, {"error": str(exc)}
 
-    try:
-        leaks = _fetch_cf_radar_leaks(iso2)
-        cf_score = _score_cf_leaks(leaks)
-    except Exception as exc:
-        logger.debug("CF Radar unavailable for %s: %s", iso2, exc)
-        cf_score = 0
+    cf_score = 0
+    if cf_events_cache is not None:
+        iso_upper = iso2.upper()
+        country_hijacks = [
+            e for e in cf_events_cache
+            if iso_upper in (e.get("victim_countries") or [])
+            or e.get("hijacker_country") == iso_upper
+        ]
+        cf_score = _score_cf_hijacks(country_hijacks)
+    else:
+        try:
+            hijacks = _fetch_cf_radar_hijacks(iso2)
+            cf_score = _score_cf_hijacks(hijacks)
+        except Exception as exc:
+            logger.debug("CF Radar unavailable for %s: %s", iso2, exc)
+            cf_score = 0
 
     return ioda_score, ioda_detail, cf_score
 
@@ -163,11 +185,27 @@ def collect_bgp_signals() -> list[SignalRecord]:
     # Determine unique countries to avoid duplicate HTTP calls
     unique_iso2 = {r.country for r in ALL_REGIONS}
 
-    # Fetch IODA + CF in parallel per unique country
+    # Fetch CF Radar hijacks once (global feed), then filter per-country
+    cf_events: list[dict[str, Any]] = []
+    try:
+        token = get_secret("/dr-alert/cf-radar-token")
+        if token:
+            data = get_json(
+                _CF_RADAR_URL,
+                params={"dateRange": "1d", "per_page": 50},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
+            )
+            cf_events = data.get("result", {}).get("events", [])
+            logger.info("CF Radar: fetched %d global hijack events", len(cf_events))
+    except Exception as exc:
+        logger.warning("CF Radar global fetch failed: %s", exc)
+
+    # Fetch IODA in parallel per unique country (CF filtering is local)
     country_cache: dict[str, tuple[int, dict[str, Any], int]] = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_iso2 = {
-            executor.submit(_fetch_country_signals, iso2): iso2
+            executor.submit(_fetch_country_signals, iso2, cf_events): iso2
             for iso2 in unique_iso2
         }
         for future in as_completed(future_to_iso2):
@@ -194,7 +232,7 @@ def collect_bgp_signals() -> list[SignalRecord]:
                 raw_data={
                     "iso2": iso2,
                     "ioda": ioda_detail,
-                    "cf_leak_score": cf_score,
+                    "cf_hijack_score": cf_score,
                     "sub_scores": {"ioda": ioda_score, "cf": cf_score},
                 },
                 source="ioda+cf_radar",

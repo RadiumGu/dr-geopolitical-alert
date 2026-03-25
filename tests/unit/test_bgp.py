@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from collectors.bgp import (
-    _score_cf_leaks,
+    _score_cf_hijacks,
     _score_ioda,
     collect_bgp_signals,
 )
@@ -70,20 +70,27 @@ class TestScoreIoda:
         assert score <= 15
 
 
-# ── _score_cf_leaks ────────────────────────────────────────────────────────────
+# ── _score_cf_hijacks ─────────────────────────────────────────────────────────
 
-class TestScoreCfLeaks:
-    """Verify Cloudflare BGP leak scoring."""
+class TestScoreCfHijacks:
+    """Verify Cloudflare BGP hijack scoring."""
 
-    def test_no_leaks_returns_zero(self) -> None:
-        assert _score_cf_leaks([]) == 0
+    def test_no_hijacks_returns_zero(self) -> None:
+        assert _score_cf_hijacks([]) == 0
 
-    def test_one_leak_scores_4(self) -> None:
-        assert _score_cf_leaks([{"id": 1}]) == 4
+    def test_one_low_conf_hijack(self) -> None:
+        assert _score_cf_hijacks([{"id": 1, "confidence_score": 2}]) == 4
 
-    def test_many_leaks_capped_at_8(self) -> None:
-        leaks = [{"id": i} for i in range(20)]
-        assert _score_cf_leaks(leaks) == 8
+    def test_one_high_conf_hijack(self) -> None:
+        assert _score_cf_hijacks([{"id": 1, "confidence_score": 12}]) == 4
+
+    def test_many_high_conf_capped(self) -> None:
+        hijacks = [{"id": i, "confidence_score": 10} for i in range(10)]
+        assert _score_cf_hijacks(hijacks) == 8
+
+    def test_many_low_conf_capped_at_7(self) -> None:
+        hijacks = [{"id": i, "confidence_score": 2} for i in range(20)]
+        assert _score_cf_hijacks(hijacks) == 7
 
 
 # ── collect_bgp_signals ────────────────────────────────────────────────────────
@@ -96,7 +103,7 @@ class TestCollectBgpSignals:
 
         with (
             patch("collectors.bgp._fetch_ioda_signals", return_value={}),
-            patch("collectors.bgp._fetch_cf_radar_leaks", return_value=[]),
+            patch("collectors.bgp.get_secret", return_value=""),
             patch("collectors.bgp.put_signal"),
         ):
             records = collect_bgp_signals()
@@ -111,7 +118,7 @@ class TestCollectBgpSignals:
 
         with (
             patch("collectors.bgp._fetch_ioda_signals", side_effect=RuntimeError("timeout")),
-            patch("collectors.bgp._fetch_cf_radar_leaks", return_value=[]),
+            patch("collectors.bgp.get_secret", return_value=""),
             patch("collectors.bgp.put_signal"),
         ):
             records = collect_bgp_signals()
@@ -123,7 +130,7 @@ class TestCollectBgpSignals:
     def test_high_drop_ioda_gives_non_zero_score(self) -> None:
         with (
             patch("collectors.bgp._fetch_ioda_signals", return_value=_ioda_response(60)),
-            patch("collectors.bgp._fetch_cf_radar_leaks", return_value=[]),
+            patch("collectors.bgp.get_secret", return_value=""),
             patch("collectors.bgp.put_signal"),
         ):
             records = collect_bgp_signals()

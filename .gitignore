@@ -22,3 +22,6 @@ doc/
 
 # CDK context (may contain cached SSM secrets)
 cdk.context.json
+
+# Lambda layer build output
+layers/dependencies/python/

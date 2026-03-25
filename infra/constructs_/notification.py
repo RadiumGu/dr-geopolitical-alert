@@ -16,7 +16,14 @@ SLACK_WEBHOOK_SSM_PATH = "/dr-alert/slack-webhook-url"
 class NotificationConstruct(Construct):
     """SNS topic for GPRI level changes + Slack dispatcher Lambda."""
 
-    def __init__(self, scope: Construct, id: str, *, dlq: sqs.Queue | None = None) -> None:
+    def __init__(
+        self,
+        scope: Construct,
+        id: str,
+        *,
+        dlq: sqs.Queue | None = None,
+        layer: lambda_.LayerVersion | None = None,
+    ) -> None:
         super().__init__(scope, id)
 
         self.topic = sns.Topic(
@@ -41,6 +48,7 @@ class NotificationConstruct(Construct):
             architecture=lambda_.Architecture.ARM_64,
             handler="notify.slack_dispatcher.handler",
             code=lambda_.Code.from_asset("src"),
+            layers=[layer] if layer else [],
             memory_size=256,
             timeout=Duration.seconds(30),
             environment=env,

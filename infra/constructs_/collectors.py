@@ -42,6 +42,7 @@ class CollectorsConstruct(Construct):
         *,
         signals_table: dynamodb.Table,
         dlq: sqs.Queue | None = None,
+        layer: lambda_.LayerVersion | None = None,
     ) -> None:
         super().__init__(scope, id)
 
@@ -68,6 +69,7 @@ class CollectorsConstruct(Construct):
                 architecture=lambda_.Architecture.ARM_64,
                 handler=f"collectors.{name}.handler",
                 code=code,
+                layers=[layer] if layer else [],
                 memory_size=256,
                 timeout=Duration.seconds(60),
                 environment={

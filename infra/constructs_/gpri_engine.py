@@ -27,6 +27,7 @@ class GpriEngineConstruct(Construct):
         gpri_table: dynamodb.Table,
         sns_topic: sns.Topic,
         dlq: sqs.Queue | None = None,
+        layer: lambda_.LayerVersion | None = None,
     ) -> None:
         super().__init__(scope, id)
 
@@ -42,6 +43,7 @@ class GpriEngineConstruct(Construct):
             architecture=lambda_.Architecture.ARM_64,
             handler="engine.gpri_calculator.handler",
             code=lambda_.Code.from_asset("src"),
+            layers=[layer] if layer else [],
             memory_size=256,
             timeout=Duration.seconds(30),
             environment={

@@ -29,6 +29,7 @@ class ApiConstruct(Construct):
         id: str,
         *,
         gpri_table: dynamodb.Table,
+        layer: lambda_.LayerVersion | None = None,
     ) -> None:
         super().__init__(scope, id)
 
@@ -40,6 +41,7 @@ class ApiConstruct(Construct):
             architecture=lambda_.Architecture.ARM_64,
             handler="api.gpri_query.handler",
             code=lambda_.Code.from_asset("src"),
+            layers=[layer] if layer else [],
             memory_size=128,
             timeout=Duration.seconds(10),
             environment={

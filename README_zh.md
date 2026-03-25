@@ -148,40 +148,34 @@ CDK_DEPLOY_REGION=eu-west-1 cdk deploy
 
 系统部署在 **us-west-2（Oregon）** —— 独立于被监控 Region，确保控制平面可用性。
 
-### 部署后配置：API Token
+### 部署后配置：API Token（可选）
 
-所有 token 存在 **SSM Parameter Store**（不在代码中），部署前后均可配置：
+API Token 在 **运行时** 从 SSM Parameter Store 读取——添加或修改 token **无需重新部署**。随时配置即可：
 
 ```bash
 REGION=us-west-2  # 你的部署 Region
 
-# [必须] Slack webhook — 告警通知
+# Slack webhook — 告警通知
 aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
     --value "https://hooks.slack.com/services/你的/WEBHOOK/URL" \
     --type String --region $REGION --overwrite
 
-# [必须] UCDP token — A 类武装冲突数据（发邮件至 mertcan.yilmaz@pcr.uu.se 申请）
+# UCDP token — A 类武装冲突数据（发邮件至 mertcan.yilmaz@pcr.uu.se 申请）
 aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
     --value "<你的-ucdp-token>" --type String --region $REGION --overwrite
 
-# [可选] ACLED 凭证 — A 类备选数据源（在 developer.acleddata.com 注册）
+# ACLED 凭证 — A 类备选数据源（在 developer.acleddata.com 注册）
 aws ssm put-parameter --name "/dr-alert/acled-api-key" \
     --value "<你的-acled-key>" --type String --region $REGION --overwrite
 aws ssm put-parameter --name "/dr-alert/acled-email" \
     --value "<你的邮箱>" --type String --region $REGION --overwrite
 
-# [可选] Cloudflare Radar — G 类 DDoS/BGP 泄漏检测（免费 Cloudflare 账号）
+# Cloudflare Radar — G 类 DDoS/BGP 泄漏检测（免费 Cloudflare 账号）
 aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
     --value "<你的-cf-token>" --type String --region $REGION --overwrite
 ```
 
-配置 token 后，**重新部署**以注入到 Lambda 环境变量：
-
-```bash
-cdk deploy
-```
-
-> **说明：** SSM 中的 token 在部署时读取并注入为 Lambda 环境变量。添加/修改 token 后需重新 `cdk deploy`。
+> **无需重新部署。** Token 在每次 Lambda 调用时从 SSM 读取（按容器缓存）。随时添加 token，几分钟内自动生效。
 
 ### 手动触发验证
 

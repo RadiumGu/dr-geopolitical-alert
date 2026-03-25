@@ -21,17 +21,19 @@ def _ioda_response(drop_pct: float) -> dict:
     current = baseline * (1 - drop_pct / 100)
     return {
         "data": [
-            {
-                "datasource": "bgp",
-                "values": [
-                    [1000, baseline],
-                    [1060, baseline],
-                    [1120, baseline],
-                    [1180, baseline],
-                    [1240, baseline],
-                    [1300, current],
-                ],
-            }
+            [
+                {
+                    "datasource": "bgp",
+                    "values": [
+                        baseline,
+                        baseline,
+                        baseline,
+                        baseline,
+                        baseline,
+                        current,
+                    ],
+                }
+            ]
         ]
     }
 

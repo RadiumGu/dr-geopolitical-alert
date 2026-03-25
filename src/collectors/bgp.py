@@ -24,6 +24,7 @@ from shared.types import SignalClass, SignalRecord
 from shared.region_config import ALL_REGIONS, RegionConfig
 from shared.db import put_signal
 from shared.http_client import get_json
+from shared.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
 def _fetch_cf_radar_leaks(iso2: str) -> list[dict[str, Any]]:
     """Fetch Cloudflare Radar BGP route-leak events for a country (optional)."""
-    token = os.environ.get("CF_RADAR_TOKEN", "")
+    token = get_secret("/dr-alert/cf-radar-token")
     if not token:
         return []
 

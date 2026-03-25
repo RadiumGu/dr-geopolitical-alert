@@ -24,6 +24,7 @@ from shared.types import SignalClass, SignalRecord
 from shared.region_config import ALL_REGIONS, COUNTRY_TO_REGIONS, RegionConfig
 from shared.db import put_signal
 from shared.http_client import get_json
+from shared.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ NEIGHBOR_MAP: dict[str, list[tuple[str, int]]] = {
 def _fetch_ucdp_events(days: int = 90) -> list[dict[str, Any]]:
     """Fetch UCDP GED conflict events for the last N days."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    token = os.environ.get("UCDP_ACCESS_TOKEN", "")
+    token = get_secret("/dr-alert/ucdp-access-token")
     headers = {"x-ucdp-access-token": token} if token else None
     data = get_json(
         _UCDP_URL,
@@ -73,9 +74,9 @@ def _fetch_acled_public(days: int = 30) -> list[dict[str, Any]]:
 
 
 def _fetch_acled_events(days: int = 90) -> list[dict[str, Any]]:
-    """Fetch ACLED conflict events (requires ACLED_API_KEY env var)."""
-    api_key = os.environ.get("ACLED_API_KEY", "")
-    email = os.environ.get("ACLED_EMAIL", "")
+    """Fetch ACLED conflict events (requires ACLED credentials in SSM)."""
+    api_key = get_secret("/dr-alert/acled-api-key")
+    email = get_secret("/dr-alert/acled-email")
     if not api_key or not email:
         raise ValueError("ACLED_API_KEY / ACLED_EMAIL not set")
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")

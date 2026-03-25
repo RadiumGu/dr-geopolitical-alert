@@ -54,6 +54,9 @@ D_WEIGHT = 10  # Max score for this class
 
 def _fetch_json(url: str, headers: dict | None = None, timeout: int = 15) -> Any:
     """Fetch JSON from a URL with optional headers."""
+    if not url.startswith("https://"):
+        logger.warning("Refusing to fetch non-HTTPS URL: %s", url)
+        return None
     req = Request(url, headers=headers or {})
     try:
         with urlopen(req, timeout=timeout) as resp:

@@ -142,9 +142,11 @@ class DashboardConstruct(Construct):
             widgets=[
                 # Header row
                 [cloudwatch.TextWidget(
-                    markdown="# 🌍 DR Geopolitical Risk Index (GPRI) — 34 Regions\n"
-                             "GPRI Total = Baseline (BL) + Real-Time Signals (A-G) &nbsp;|&nbsp; "
-                             "⚫ BLACK(86-100) | 🔴 RED(71-85) | 🟠 ORANGE(51-70) | 🟡 YELLOW(31-50) | 🟢 GREEN(0-30)",
+                    markdown=(
+                        "# 🌍 DR Geopolitical Risk Index (GPRI) — 34 Regions\n"
+                        + "GPRI Total = Baseline (BL) + Real-Time Signals (A-G) &nbsp;|&nbsp; "
+                        + "⚫ BLACK(86-100) | 🔴 RED(71-85) | 🟠 ORANGE(51-70) | 🟡 YELLOW(31-50) | 🟢 GREEN(0-30)"
+                    ),
                     width=24,
                     height=2,
                 )],

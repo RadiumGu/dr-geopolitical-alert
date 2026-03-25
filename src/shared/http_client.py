@@ -51,7 +51,7 @@ def get_json(url: str, params: dict[str, Any] | None = None,
         return resp.json()
     except requests.RequestException as exc:
         elapsed = time.monotonic() - start
-        logger.error("GET %s failed after %.1fs: %s", url, elapsed, exc)
+        logger.warning("GET %s failed after %.1fs: %s", url, elapsed, exc)
         raise
 
 
@@ -63,5 +63,5 @@ def get_text(url: str, params: dict[str, Any] | None = None,
         resp.raise_for_status()
         return resp.text
     except requests.RequestException as exc:
-        logger.error("GET %s failed: %s", url, exc)
+        logger.warning("GET %s failed: %s", url, exc)
         raise

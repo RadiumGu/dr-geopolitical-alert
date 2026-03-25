@@ -149,8 +149,6 @@ def _sanctions_score(iso2: str, hits: int) -> tuple[int, str]:
         dynamic = min(8 + (hits - 3), MAX_SCORE)
     elif hits >= 1:
         dynamic = 4 + min(hits - 1, 3)
-    elif hits == 0 and any(iso2 in _COUNTRY_KEYWORDS for _ in [None]):
-        dynamic = 0
     else:
         dynamic = 0
 

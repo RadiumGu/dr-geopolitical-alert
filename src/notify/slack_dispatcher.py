@@ -238,6 +238,9 @@ def _post_to_slack(payload: dict[str, Any]) -> None:
     if not webhook_url:
         logger.warning("Slack webhook URL unavailable, skipping notification")
         return
+    if not webhook_url.startswith("https://"):
+        logger.warning("Slack webhook URL has invalid scheme, skipping notification")
+        return
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(

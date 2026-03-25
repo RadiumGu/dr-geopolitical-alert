@@ -1,0 +1,12 @@
+# .gitleaksignore — suppress gitleaks false positives
+#
+# cdk.out/ is already in .gitignore so it won't appear in git history.
+# If gitleaks is run against the working tree (e.g. pre-commit) and finds
+# false positives in synthesised CloudFormation assets, add their SHA256
+# fingerprints below (one per line).
+#
+# Generate a fingerprint for a specific finding:
+#   gitleaks detect --report-format json | jq '.[].Fingerprint'
+#
+# Example:
+#   a1b2c3d4e5f6...

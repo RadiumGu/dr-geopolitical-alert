@@ -19,3 +19,6 @@ __pycache__/
 # Dashboard cache
 infra/dashboard_body.json
 doc/
+
+# CDK context (may contain cached SSM secrets)
+cdk.context.json

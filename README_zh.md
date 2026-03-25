@@ -32,13 +32,13 @@
 
 | 类别 | 维度 | 权重 | 数据源 | 采集频率 |
 |------|------|------|--------|---------|
-| **A** | 武装冲突 | 20 | UCDP GED → ACLED 降级 | 10 分钟 |
+| **A** | 武装冲突 | 20 | ACLED（OAuth 认证）→ UCDP + GDELT（合并）→ 仅 UCDP → 仅 GDELT；含邻国溢出效应（12 国） | 10 分钟 |
 | **B** | 网络安全威胁 | 15 | abuse.ch (Feodo+URLhaus)，趋势对比 | 10 分钟 |
 | **C** | 政治外交稳定性 | 15 | 美国国务院旅行预警 RSS | 10 分钟 |
 | **D** | 物理基础设施 | 10 | RIPE Atlas 探针连接率 | 10 分钟 |
 | **E** | 极端天气 | 15 | Open-Meteo（批量）+ USGS + GDACS | 10 分钟 |
 | **F** | 合规/法规 | 10 | OFAC RSS + 欧盟官方公报 | 10 分钟 |
-| **G** | BGP/骨干网 | 15 | IODA（互联网中断检测） | 10 分钟 |
+| **G** | BGP/骨干网 | 15 | IODA + Cloudflare Radar | 10 分钟 |
 
 ## GPRI 评分模型
 
@@ -161,14 +161,16 @@ aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
     --type String --region $REGION --overwrite
 
 # UCDP token — A 类武装冲突数据（发邮件至 mertcan.yilmaz@pcr.uu.se 申请）
+# 注意：UCDP GED 数据有约 1 年延迟（最新可用：2024）
 aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
     --value "<你的-ucdp-token>" --type String --region $REGION --overwrite
 
-# ACLED 凭证 — A 类备选数据源（在 developer.acleddata.com 注册）
-aws ssm put-parameter --name "/dr-alert/acled-api-key" \
-    --value "<你的-acled-key>" --type String --region $REGION --overwrite
+# ACLED OAuth 凭证 — A 类数据源（需在 acleddata.com 升级至 Research+ 套餐）
+# 注意：Open 套餐（Gmail）无 API 访问权限，需 Research+ 套餐
 aws ssm put-parameter --name "/dr-alert/acled-email" \
-    --value "<你的邮箱>" --type String --region $REGION --overwrite
+    --value "<你的-acled-邮箱>" --type String --region $REGION --overwrite
+aws ssm put-parameter --name "/dr-alert/acled-password" \
+    --value "<你的-acled-密码>" --type SecureString --region $REGION --overwrite
 
 # Cloudflare Radar — G 类 DDoS/BGP 泄漏检测（免费 Cloudflare 账号）
 aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
@@ -266,6 +268,7 @@ curl "https://<your-function-url>/"
 
 | 类别 | 数据源 | API 端点 | 提供内容 | 状态 |
 |------|--------|---------|---------|------|
+| **A** | [GDELT](https://www.gdeltproject.org/)（Google） | `api.gdeltproject.org/api/v2/doc/doc` | 全球媒体实时冲突事件提及（15 分钟更新） | ✅ 正常 |
 | **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `feodotracker.abuse.ch` | 僵尸网络 C2 IP 黑名单 | ✅ 正常 |
 | **C** | [美国国务院旅行预警](https://travel.state.gov/) | `travel.state.gov` RSS | 国家旅行风险等级 (1–4) | ✅ 正常 |
 | **D** | [RIPE Atlas](https://atlas.ripe.net/) | `atlas.ripe.net/api/v2/probes/` | 各国网络探针连接率 | ✅ 正常 |
@@ -274,14 +277,14 @@ curl "https://<your-function-url>/"
 | **E** | [GDACS](https://www.gdacs.org/)（联合国） | `gdacs.org/xml/rss.xml` | 全球灾害预警（洪水、气旋、火山） | ✅ 正常 |
 | **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | 欧盟法规/制裁变更 | ✅ 正常 |
 | **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/)（乔治亚理工） | `api.ioda.inetintel.cc.gatech.edu` | 互联网中断检测（BGP、主动探测、暗网） | ✅ 正常 |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | `api.cloudflare.com/client/v4/radar/` | DDoS 攻击 + 流量异常 + BGP 泄漏检测 | ✅ 正常（route-leaks 端点返回 400，排查中） |
 
 ### 需要 API Token（免费注册）
 
 | 类别 | 数据源 | 如何获取 Token | 环境变量 | 缺失影响 |
 |------|--------|---------------|---------|---------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | 发邮件至 `mertcan.yilmaz@pcr.uu.se`（[详情](https://ucdp.uu.se/apidocs/)） | `UCDP_ACCESS_TOKEN` | ⚠️ **A 类失明** — 无武装冲突数据（缺失 0–20 分） |
-| **A** | [ACLED](https://acleddata.com/)（备选） | 在 [developer.acleddata.com](https://developer.acleddata.com/) 注册 | `ACLED_API_KEY` + `ACLED_EMAIL` | UCDP 的备份；数据更细粒度 |
-| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | 免费 [Cloudflare 账号](https://developers.cloudflare.com/radar/) | `CF_RADAR_TOKEN` | 可选 — 增加 DDoS + 流量异常 + BGP 泄漏检测；IODA 已覆盖基本面 |
+| **A** | [UCDP GED](https://ucdp.uu.se/) | 发邮件至 `mertcan.yilmaz@pcr.uu.se`（[详情](https://ucdp.uu.se/apidocs/)） | `UCDP_ACCESS_TOKEN` | ✅ Token 已配置，但数据有约 1 年延迟（最新：2024）— 学术数据库 |
+| **A** | [ACLED](https://acleddata.com/) | 新网站 acleddata.com；需要 **Research+ 套餐**才能使用 API（Gmail = Open 套餐 = 无 API 访问）。OAuth 认证：邮箱 + 密码。SSM：`/dr-alert/acled-email` + `/dr-alert/acled-password` | `ACLED_EMAIL` + `ACLED_PASSWORD` | ⚠️ 当前受阻（Open 套餐）— 需升级至 Research+ 套餐 |
 
 ### 已知问题
 
@@ -305,6 +308,9 @@ dr-geopolitical-alert/
 │       ├── notification.py  # SNS + Slack Lambda
 │       ├── dashboard.py     # CloudWatch 仪表板
 │       └── api.py           # GPRI 查询 Lambda（公网端点默认关闭）
+├── layers/
+│   └── dependencies/
+│       └── requirements.txt # 第三方依赖（打包为 Lambda Layer）
 ├── src/                     # Lambda 源码
 │   ├── api/
 │   │   └── gpri_query.py    # 公开 GPRI 查询端点
@@ -319,8 +325,9 @@ dr-geopolitical-alert/
 │       ├── types.py         # 数据模型 + 枚举
 │       ├── region_config.py # 34 Region 定义 + 基线分
 │       ├── db.py            # DynamoDB 操作
-│       └── http_client.py   # 韧性 HTTP 客户端
-├── tests/unit/              # 100 个单元测试
+│       ├── http_client.py   # 韧性 HTTP 客户端
+│       └── secrets.py       # 运行时 SSM 密钥加载
+├── tests/unit/              # 126 个单元测试
 ├── cdk.json
 ├── requirements.txt
 └── conftest.py
@@ -330,7 +337,7 @@ dr-geopolitical-alert/
 
 ```bash
 python3 -m pytest tests/ -v
-# 100 passed
+# 126 passed
 ```
 
 ## 监控

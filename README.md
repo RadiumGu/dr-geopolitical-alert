@@ -33,13 +33,13 @@ Traditional DR monitoring only detects failures after they happen. This system a
 
 | Class | Dimension | Weight | Data Sources | Cadence |
 |-------|-----------|--------|-------------|---------|
-| **A** | Armed Conflict | 20 | UCDP GED → ACLED fallback | 10 min |
+| **A** | Armed Conflict | 20 | ACLED (keyed, OAuth) → UCDP + GDELT (merged) → UCDP alone → GDELT alone; includes neighbor spillover (12 countries) | 10 min |
 | **B** | Cyber Threats | 15 | abuse.ch (Feodo+URLhaus), trend-based | 10 min |
 | **C** | Political Stability | 15 | US State Dept Travel Advisory RSS | 10 min |
 | **D** | Physical Infrastructure | 10 | RIPE Atlas probe connectivity | 10 min |
 | **E** | Extreme Weather | 15 | Open-Meteo (batch) + USGS + GDACS | 10 min |
 | **F** | Compliance/Regulatory | 10 | OFAC RSS + EU Official Journal | 10 min |
-| **G** | BGP/Backbone | 15 | IODA (Internet Outage Detection) | 10 min |
+| **G** | BGP/Backbone | 15 | IODA + Cloudflare Radar | 10 min |
 
 ## GPRI Scoring
 
@@ -160,14 +160,16 @@ aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
     --type String --region $REGION --overwrite
 
 # UCDP token — A-class armed conflict data (email mertcan.yilmaz@pcr.uu.se to get one)
+# Note: UCDP GED data has ~1 year delay (latest available: 2024)
 aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
     --value "<your-ucdp-token>" --type String --region $REGION --overwrite
 
-# ACLED credentials — A-class fallback (register at developer.acleddata.com)
-aws ssm put-parameter --name "/dr-alert/acled-api-key" \
-    --value "<your-acled-key>" --type String --region $REGION --overwrite
+# ACLED OAuth credentials — A-class (requires Research+ tier at acleddata.com)
+# Note: Open tier (gmail) does NOT grant API access; Research+ required
 aws ssm put-parameter --name "/dr-alert/acled-email" \
-    --value "<your-email>" --type String --region $REGION --overwrite
+    --value "<your-acled-email>" --type String --region $REGION --overwrite
+aws ssm put-parameter --name "/dr-alert/acled-password" \
+    --value "<your-acled-password>" --type SecureString --region $REGION --overwrite
 
 # Cloudflare Radar — G-class DDoS/BGP leak detection (free Cloudflare account)
 aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
@@ -265,6 +267,7 @@ curl "https://<your-function-url>/"
 
 | Class | Source | API Endpoint | What It Provides | Status |
 |-------|--------|-------------|-----------------|--------|
+| **A** | [GDELT](https://www.gdeltproject.org/) (Google) | `api.gdeltproject.org/api/v2/doc/doc` | Real-time conflict event mentions from global media | ✅ Working |
 | **B** | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/) | `feodotracker.abuse.ch` | Botnet C2 IP blocklist | ✅ Working |
 | **C** | [US State Dept Travel Advisory](https://travel.state.gov/) | `travel.state.gov` RSS | Country travel risk levels (1–4) | ✅ Working |
 | **D** | [RIPE Atlas](https://atlas.ripe.net/) | `atlas.ripe.net/api/v2/probes/` | Network probe connectivity by country | ✅ Working |
@@ -273,14 +276,14 @@ curl "https://<your-function-url>/"
 | **E** | [GDACS](https://www.gdacs.org/) (UN) | `gdacs.org/xml/rss.xml` | Global disaster alerts (flood, cyclone, volcano) | ✅ Working |
 | **F** | [EU Official Journal](https://eur-lex.europa.eu/) | `eur-lex.europa.eu` RSS | EU regulatory/sanctions changes | ✅ Working |
 | **G** | [IODA](https://ioda.inetintel.cc.gatech.edu/) (Georgia Tech) | `api.ioda.inetintel.cc.gatech.edu` | Internet outage detection (BGP, Active Probing, Darknet) | ✅ Working |
+| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | `api.cloudflare.com/client/v4/radar/` | DDoS attacks + traffic anomaly + BGP leak detection | ✅ Working (route-leaks endpoint returns 400, under investigation) |
 
 ### Requires API Token (Free Registration)
 
 | Class | Source | How to Get Token | Env Variable | Impact if Missing |
 |-------|--------|-----------------|-------------|-------------------|
-| **A** | [UCDP GED](https://ucdp.uu.se/) | Email `mertcan.yilmaz@pcr.uu.se` ([details](https://ucdp.uu.se/apidocs/)) | `UCDP_ACCESS_TOKEN` | ⚠️ **A-class blind** — no armed conflict data (0–20 points missing) |
-| **A** | [ACLED](https://acleddata.com/) (fallback) | Register at [developer.acleddata.com](https://developer.acleddata.com/) | `ACLED_API_KEY` + `ACLED_EMAIL` | Backup for UCDP; more granular conflict data |
-| **G** | [Cloudflare Radar](https://radar.cloudflare.com/) | Free [Cloudflare account](https://developers.cloudflare.com/radar/) | `CF_RADAR_TOKEN` | Optional — adds DDoS + traffic anomaly + BGP leak detection; IODA covers the basics |
+| **A** | [UCDP GED](https://ucdp.uu.se/) | Email `mertcan.yilmaz@pcr.uu.se` ([details](https://ucdp.uu.se/apidocs/)) | `UCDP_ACCESS_TOKEN` | ✅ Token configured, but data has ~1 year delay (latest: 2024) — academic database |
+| **A** | [ACLED](https://acleddata.com/) | New site: acleddata.com; requires **Research+ tier** for API access (gmail = Open tier = no API access). OAuth-based: email + password. SSM: `/dr-alert/acled-email` + `/dr-alert/acled-password` | `ACLED_EMAIL` + `ACLED_PASSWORD` | ⚠️ Currently blocked (Open tier) — upgrade to Research+ tier for access |
 
 ### Known Issues
 
@@ -304,6 +307,9 @@ dr-geopolitical-alert/
 │       ├── notification.py  # SNS + Slack Lambda
 │       ├── dashboard.py     # CloudWatch Dashboard
 │       └── api.py           # GPRI Query Lambda Function URL
+├── layers/
+│   └── dependencies/
+│       └── requirements.txt # Third-party deps (packaged as Lambda Layer)
 ├── src/                     # Lambda source code
 │   ├── api/
 │   │   └── gpri_query.py    # Public GPRI query endpoint
@@ -318,8 +324,9 @@ dr-geopolitical-alert/
 │       ├── types.py         # Data models + enums
 │       ├── region_config.py # 34 Region definitions + baselines
 │       ├── db.py            # DynamoDB operations
-│       └── http_client.py   # Resilient HTTP client
-├── tests/unit/              # 100 unit tests
+│       ├── http_client.py   # Resilient HTTP client
+│       └── secrets.py       # Runtime SSM secret loading
+├── tests/unit/              # 126 unit tests
 ├── cdk.json
 ├── requirements.txt
 └── conftest.py
@@ -329,7 +336,7 @@ dr-geopolitical-alert/
 
 ```bash
 python3 -m pytest tests/ -v
-# 100 passed
+# 126 passed
 ```
 
 ## Monitoring

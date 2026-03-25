@@ -31,9 +31,6 @@ MAX_SCORE = 15
 _IODA_URL = "https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw"
 _CF_RADAR_URL = "https://api.cloudflare.com/client/v4/radar/bgp/route-leaks/events"
 
-_IODA_ENTITY_TYPE = "country"
-
-
 def _fetch_ioda_signals(iso2: str) -> dict[str, Any]:
     """Fetch IODA raw signals for a country."""
     now = datetime.now(timezone.utc)
@@ -41,13 +38,10 @@ def _fetch_ioda_signals(iso2: str) -> dict[str, Any]:
     until_ts = int(now.timestamp())
 
     data = get_json(
-        _IODA_URL,
+        f"{_IODA_URL}/country/{iso2.upper()}",
         params={
-            "entityType": _IODA_ENTITY_TYPE,
-            "entityCode": iso2.lower(),
             "from": from_ts,
             "until": until_ts,
-            "datasource": "bgp,ucsd-nt,ping-slash24",
         },
     )
     return data
@@ -64,6 +58,10 @@ def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     if not sources_data:
         return 0, detail
 
+    # IODA wraps data in a nested list: [[{source1}, {source2}, ...]]
+    if sources_data and isinstance(sources_data[0], list):
+        sources_data = sources_data[0]
+
     max_drop_pct = 0.0
 
     for source in sources_data:
@@ -72,7 +70,13 @@ def _score_ioda(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not values or len(values) < 2:
             continue
 
-        recent = [v[1] for v in values[-6:] if v[1] is not None]
+        # Skip complex datasources (gtr-sarima, ping-slash24-loss etc.)
+        # We only care about bgp, ping-slash24, merit-nt which have plain numbers
+        if name not in ("bgp", "ping-slash24", "merit-nt", "gtr", "gtr-norm"):
+            continue
+
+        # Values are plain numbers (int/float/None), not tuples
+        recent = [v for v in values[-6:] if v is not None and isinstance(v, (int, float))]
         if len(recent) < 2:
             continue
 

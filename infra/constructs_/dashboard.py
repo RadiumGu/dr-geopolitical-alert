@@ -50,14 +50,29 @@ class DashboardConstruct(Construct):
                     ],
                     left_y_axis=cloudwatch.YAxisProps(min=0, max=100),
                     annotations=[
-                        cloudwatch.HorizontalAnnotation(value=0,  label="GREEN",  color="#2ca02c"),
-                        cloudwatch.HorizontalAnnotation(value=31, label="YELLOW", color="#f5c542"),
-                        cloudwatch.HorizontalAnnotation(value=51, label="ORANGE", color="#f59c42"),
-                        cloudwatch.HorizontalAnnotation(value=71, label="RED",    color="#d13212"),
-                        cloudwatch.HorizontalAnnotation(value=86, label="BLACK",  color="#1d1d1d"),
+                        cloudwatch.HorizontalAnnotation(
+                            value=0, label="GREEN", color="#2ca02c",
+                            fill=cloudwatch.Shading.ABOVE,
+                        ),
+                        cloudwatch.HorizontalAnnotation(
+                            value=31, label="YELLOW", color="#f5c542",
+                            fill=cloudwatch.Shading.ABOVE,
+                        ),
+                        cloudwatch.HorizontalAnnotation(
+                            value=51, label="ORANGE", color="#f59c42",
+                            fill=cloudwatch.Shading.ABOVE,
+                        ),
+                        cloudwatch.HorizontalAnnotation(
+                            value=71, label="RED", color="#d13212",
+                            fill=cloudwatch.Shading.ABOVE,
+                        ),
+                        cloudwatch.HorizontalAnnotation(
+                            value=86, label="BLACK", color="#1d1d1d",
+                            fill=cloudwatch.Shading.ABOVE,
+                        ),
                     ],
                     width=4,
-                    height=4,
+                    height=6,
                 )
             )
 

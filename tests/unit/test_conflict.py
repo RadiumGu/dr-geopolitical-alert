@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from collectors.conflict import (
+    NEIGHBOR_MAP,
     _anomaly_score,
     _build_country_timeseries,
     collect_conflict_signals,
@@ -82,7 +83,8 @@ class TestCollectConflictSignals:
 
         with (
             patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
-            patch("collectors.conflict._fetch_ucdp_events", return_value=[]),
+            patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
+            patch("collectors.conflict._fetch_acled_public", return_value=[]),
             patch("collectors.conflict.put_signal"),
         ):
             records = collect_conflict_signals()
@@ -95,10 +97,81 @@ class TestCollectConflictSignals:
     def test_score_zero_when_no_events(self) -> None:
         with (
             patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
-            patch("collectors.conflict._fetch_ucdp_events", return_value=[]),
+            patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
+            patch("collectors.conflict._fetch_acled_public", return_value=[]),
             patch("collectors.conflict.put_signal"),
         ):
             records = collect_conflict_signals()
 
         for r in records:
             assert r.score == 0
+
+    def test_public_acled_fallback_used_when_ucdp_fails(self) -> None:
+        """Public ACLED is tried when both keyed ACLED and UCDP fail."""
+        from shared.region_config import ALL_REGIONS
+
+        with (
+            patch("collectors.conflict._fetch_acled_events", side_effect=ValueError("no key")),
+            patch("collectors.conflict._fetch_ucdp_events", side_effect=RuntimeError("401")),
+            patch("collectors.conflict._fetch_acled_public", return_value=[]) as mock_pub,
+            patch("collectors.conflict.put_signal"),
+        ):
+            records = collect_conflict_signals()
+
+        mock_pub.assert_called_once()
+        assert len(records) == len(ALL_REGIONS)
+
+
+class TestNeighborSpillover:
+    """Verify neighbor spillover raises AE score when Yemen is active."""
+
+    def test_ae_score_elevated_by_yemen_conflict(self) -> None:
+        """AE (UAE) should inherit a nonzero score from YE (Yemen) spillover."""
+        from datetime import date, timedelta
+
+        # Simulate heavy Yemen conflict in last 7 days
+        today = date.today()
+        ye_dates = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+        ye_dates_90d = ye_dates * 5  # 35 events across last 7 days
+
+        acled_events = [
+            {"iso": "YE", "event_date": d} for d in ye_dates_90d
+        ]
+
+        with (
+            patch("collectors.conflict._fetch_acled_events", return_value=acled_events),
+            patch("collectors.conflict.put_signal"),
+        ):
+            records = collect_conflict_signals()
+
+        ae_records = [r for r in records if r.region == "me-central-1"]
+        assert ae_records, "me-central-1 record missing"
+        ae = ae_records[0]
+        # AE itself has no events, but Yemen spillover (500km, decay=0.5) should raise score
+        assert ae.score > 0, f"Expected spillover score > 0 for AE, got {ae.score}"
+        assert "spillover" in ae.raw_data
+
+    def test_neighbor_map_kp_affects_kr(self) -> None:
+        """Both KR regions should show KP in their NEIGHBOR_MAP."""
+        assert "KR" in NEIGHBOR_MAP
+        kp_entries = [n for n, _ in NEIGHBOR_MAP["KR"] if n == "KP"]
+        assert kp_entries, "KP not in KR neighbors"
+
+    def test_spillover_capped_at_max_score(self) -> None:
+        """Spillover score must not exceed MAX_SCORE=20."""
+        from datetime import date, timedelta
+
+        today = date.today()
+        # Massive conflict in neighbor
+        neighbor_dates = [(today - timedelta(days=i)).isoformat() for i in range(7)] * 100
+
+        acled_events = [{"iso": "YE", "event_date": d} for d in neighbor_dates]
+
+        with (
+            patch("collectors.conflict._fetch_acled_events", return_value=acled_events),
+            patch("collectors.conflict.put_signal"),
+        ):
+            records = collect_conflict_signals()
+
+        for r in records:
+            assert r.score <= 20

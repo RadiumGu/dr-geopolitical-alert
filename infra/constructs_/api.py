@@ -38,16 +38,3 @@ class ApiConstruct(Construct):
         )
 
         gpri_table.grant_read_data(self.fn)
-
-        # Function URL — no auth (public read-only)
-        fn_url = self.fn.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.NONE,
-            cors=lambda_.FunctionUrlCorsOptions(
-                allowed_origins=["*"],
-                allowed_methods=[lambda_.HttpMethod.GET],
-            ),
-        )
-
-        self.url = fn_url.url
-
-        CfnOutput(self, "GpriQueryUrl", value=fn_url.url, description="Public GPRI Query API URL")

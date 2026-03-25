@@ -8,11 +8,11 @@ A serverless system that continuously monitors **34 AWS commercial Regions** acr
 
 ## Why?
 
-Traditional DR monitoring only detects failures after they happen. This system adds a **predictive layer** by tracking geopolitical, environmental, and network signals that precede AWS Region disruptions:
+Traditional DR plans are reactive — they activate *after* an incident begins. This system doesn't predict AWS outages — it continuously monitors the **geopolitical, environmental, and network conditions** that increase regional risk. By quantifying these signals into a single index (GPRI), it gives operations teams **early warning to strengthen DR readiness**: when to pre-warm standby Regions, lower DNS TTLs, or rehearse failover procedures — **before a crisis forces their hand**.
 
-- 🌊 A submarine cable cut near Bahrain → GPRI rises **hours before** latency increases
-- 🌪️ A typhoon approaching Tokyo → GPRI rises **days before** potential AZ outages
-- 🔒 New sanctions against a country → GPRI flags compliance risk for that Region
+- 🌊 A submarine cable cut near Bahrain → GPRI rises → **team pre-warms standby Region and reviews failover runbooks**
+- 🌪️ A typhoon approaching Tokyo → GPRI rises → **team evaluates whether to shift traffic to backup Region**
+- 🔒 New sanctions against a country → GPRI flags compliance risk → **team reviews regulatory exposure before it becomes urgent**
 
 ## Architecture
 

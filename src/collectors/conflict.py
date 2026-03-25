@@ -29,7 +29,7 @@ from shared.secrets import get_secret
 logger = logging.getLogger(__name__)
 
 MAX_SCORE = 20
-_UCDP_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/25.0"
+_UCDP_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/25.1"
 _ACLED_URL = "https://api.acleddata.com/acled/read"
 
 # Neighbor spillover map: {country_iso2: [(neighbor_iso2, distance_km), ...]}

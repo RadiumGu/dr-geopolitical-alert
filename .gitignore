@@ -25,3 +25,4 @@ cdk.context.json
 
 # Lambda layer build output
 layers/dependencies/python/
+secrets.profile

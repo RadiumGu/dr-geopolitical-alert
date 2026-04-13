@@ -164,32 +164,25 @@ The stack deploys to **us-west-2 (Oregon)** — independent from monitored Regio
 
 ### Post-Deploy: Configure API Tokens (Optional)
 
-API tokens are loaded **at runtime** from SSM Parameter Store — no redeployment needed when adding or changing tokens. Just set them whenever you have them:
+API tokens are loaded **at runtime** from SSM Parameter Store — no redeployment needed when adding or changing tokens.
+
+Use the provided helper script for a guided setup:
 
 ```bash
-REGION=us-west-2  # your deploy region
+# 1. Copy the example profile
+cp secrets.profile.example secrets.profile
 
-# Slack webhook for alert notifications
-aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
-    --value "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
-    --type String --region $REGION --overwrite
+# 2. Fill in your tokens (see comments inside for where to get each one)
+vim secrets.profile
 
-# UCDP token — A-class armed conflict data (email mertcan.yilmaz@pcr.uu.se to get one)
-# Note: UCDP GED data has ~1 year delay (latest available: 2024)
-aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
-    --value "<your-ucdp-token>" --type String --region $REGION --overwrite
+# 3. Preview what will be written (dry run)
+./bootstrap_secrets.sh --dry-run
 
-# ACLED OAuth credentials — A-class (requires Research+ tier at acleddata.com)
-# Note: Open tier (gmail) does NOT grant API access; Research+ required
-aws ssm put-parameter --name "/dr-alert/acled-email" \
-    --value "<your-acled-email>" --type String --region $REGION --overwrite
-aws ssm put-parameter --name "/dr-alert/acled-password" \
-    --value "<your-acled-password>" --type SecureString --region $REGION --overwrite
-
-# Cloudflare Radar — G-class DDoS/BGP leak detection (free Cloudflare account)
-aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
-    --value "<your-cf-token>" --type String --region $REGION --overwrite
+# 4. Write all tokens to SSM
+./bootstrap_secrets.sh
 ```
+
+`secrets.profile` is listed in `.gitignore` — it will never be accidentally committed.
 
 > **No redeployment needed.** Tokens are read from SSM on each Lambda invocation (cached per container). Add tokens at any time — they take effect within minutes.
 
@@ -257,7 +250,7 @@ curl "https://<your-function-url>/"
 | EventBridge Rules | 9 | 7 × 10min (collectors) + 1 × 5min (GPRI) + 1 weekly (calibrator) |
 | SNS Topic | 1 | GPRI level change alerts |
 | SQS Queue | 1 | Dead Letter Queue for failed invocations |
-| CloudWatch Dashboard | 1 | 39 widgets, all 34 Regions |
+| CloudWatch Dashboard | 1 | 73 widgets, all 34 Regions |
 | CloudWatch Alarm | 1 | DLQ depth > 0 |
 
 **Estimated monthly cost: $5–15** (all serverless, pay-per-use)
@@ -357,18 +350,13 @@ python3 -m pytest tests/ -v
 
 **CloudWatch Dashboard**: `DrGeopoliticalAlert` in us-west-2
 
-The dashboard has 39 widgets organized as follows:
+The dashboard has 73 widgets organized as follows:
 
-- **Header**: `GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` with color-coded level legend
-- **34 Single-Value Widgets**: One per Region, sorted by baseline risk (highest first). Each shows:
-  - Live GPRI total score (Baseline + Signals)
-  - Sparkline trend
-  - Title includes `BL:xx` showing the Region's static baseline score
-  - Tier emoji: 🔴 high baseline (≥15), 🟡 medium (≥10), 🔵 moderate (≥6), 🟢 low (<6)
+- **Header**: Three-line summary — title, `GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` with color-coded level legend, and `Signals: A Conflict | B Cyber | C Political | D Infra | E Weather | F Compliance | G BGP`
+- **34 Gauge Widgets**: One per Region, sorted by baseline risk (highest first). Each shows live GPRI total with color-coded threshold annotations
+- **34 Bar Chart Widgets**: One per Region showing A–G signal breakdown (bar view, all 7 signals visible at a glance)
 - **Timeline Graph**: `GPRI Total Score (Baseline + Signals) — Top 10 Risk Regions` with horizontal threshold lines at YELLOW/ORANGE/RED/BLACK
-- **3 Signal Breakdown Charts**: `Real-Time Signals Only (excl. Baseline)` for the top 3 risk Regions (Israel, Bahrain, Dubai). Stacked area chart showing all 7 signal classes (A–G)
-
-> **Note**: The GPRI Total (top widgets) = Baseline + Signals. The Signal Breakdown charts (bottom) show **only the real-time signal components**, excluding the static baseline. The difference between the two always equals the Region's baseline score (`BL:xx` in the title).
+- **3 Signal Breakdown Charts**: Stacked area chart showing all 7 signal classes (A–G) for the top 3 risk Regions
 
 ## Design Decisions
 

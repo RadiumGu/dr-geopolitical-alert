@@ -165,32 +165,25 @@ CDK_DEPLOY_REGION=eu-west-1 cdk deploy
 
 ### 部署后配置：API Token（可选）
 
-API Token 在 **运行时** 从 SSM Parameter Store 读取——添加或修改 token **无需重新部署**。随时配置即可：
+API Token 在 **运行时** 从 SSM Parameter Store 读取——添加或修改 token **无需重新部署**。
+
+使用内置的配置脚本一键完成：
 
 ```bash
-REGION=us-west-2  # 你的部署 Region
+# 1. 复制示例文件
+cp secrets.profile.example secrets.profile
 
-# Slack webhook — 告警通知
-aws ssm put-parameter --name "/dr-alert/slack-webhook-url" \
-    --value "https://hooks.slack.com/services/你的/WEBHOOK/URL" \
-    --type String --region $REGION --overwrite
+# 2. 填入你的 token（文件内有每个 token 的获取说明）
+vim secrets.profile
 
-# UCDP token — A 类武装冲突数据（发邮件至 mertcan.yilmaz@pcr.uu.se 申请）
-# 注意：UCDP GED 数据有约 1 年延迟（最新可用：2024）
-aws ssm put-parameter --name "/dr-alert/ucdp-access-token" \
-    --value "<你的-ucdp-token>" --type String --region $REGION --overwrite
+# 3. 预览将要写入的内容（dry run）
+./bootstrap_secrets.sh --dry-run
 
-# ACLED OAuth 凭证 — A 类数据源（需在 acleddata.com 升级至 Research+ 套餐）
-# 注意：Open 套餐（Gmail）无 API 访问权限，需 Research+ 套餐
-aws ssm put-parameter --name "/dr-alert/acled-email" \
-    --value "<你的-acled-邮箱>" --type String --region $REGION --overwrite
-aws ssm put-parameter --name "/dr-alert/acled-password" \
-    --value "<你的-acled-密码>" --type SecureString --region $REGION --overwrite
-
-# Cloudflare Radar — G 类 DDoS/BGP 泄漏检测（免费 Cloudflare 账号）
-aws ssm put-parameter --name "/dr-alert/cf-radar-token" \
-    --value "<你的-cf-token>" --type String --region $REGION --overwrite
+# 4. 写入 SSM
+./bootstrap_secrets.sh
 ```
+
+`secrets.profile` 已加入 `.gitignore`，不会被误提交。
 
 > **无需重新部署。** Token 在每次 Lambda 调用时从 SSM 读取（按容器缓存）。随时添加 token，几分钟内自动生效。
 
@@ -258,7 +251,7 @@ curl "https://<your-function-url>/"
 | EventBridge 规则 | 9 | 7 × 10分钟（采集器）+ 1 × 5分钟（GPRI）+ 1 × 每周（校准器） |
 | SNS Topic | 1 | GPRI 等级变化告警 |
 | SQS 队列 | 1 | 死信队列（失败调用） |
-| CloudWatch 仪表板 | 1 | 39 个 widget，覆盖全部 34 Region |
+| CloudWatch 仪表板 | 1 | 73 个 widget，覆盖全部 34 Region |
 | CloudWatch 告警 | 1 | DLQ 深度 > 0 |
 
 **预估月费：$5–15**（全 Serverless，按用量计费）
@@ -358,18 +351,13 @@ python3 -m pytest tests/ -v
 
 **CloudWatch 仪表板**: us-west-2 的 `DrGeopoliticalAlert`
 
-仪表板包含 39 个 widget，布局如下：
+仪表板包含 73 个 widget，布局如下：
 
-- **标题栏**: `GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` + 颜色级别图例
-- **34 个 Region 数值卡片**: 按基线风险从高到低排列，每个显示：
-  - 实时 GPRI 总分（基线 + 信号）
-  - Sparkline 趋势线
-  - 标题含 `BL:xx` 表示该 Region 的静态基线分
-  - 分层标识：🔴 高基线(≥15)、🟡 中等(≥10)、🔵 一般(≥6)、🟢 低风险(<6)
+- **标题栏**: 三行显示 —— 标题、`GPRI Total = Baseline (BL) + Real-Time Signals (A-G)` + 颜色级别图例、`Signals: A Conflict | B Cyber | C Political | D Infra | E Weather | F Compliance | G BGP`
+- **34 个仪表盘（Gauge）卡片**: 按基线风险从高到低排列，每个显示实时 GPRI 总分及颜色阈值注释
+- **34 个 A–G 信号柱状图**: 每个 Region 一张，柱状图（bar）视图一屏展示全部 7 个信号维度
 - **时间线图**: `GPRI Total Score (Baseline + Signals) — Top 10 Risk Regions`，带 YELLOW/ORANGE/RED/BLACK 阈值线
-- **3 个信号分解图**: `Real-Time Signals Only (excl. Baseline)`，展示 Top 3 风险 Region（Israel、Bahrain、Dubai）的 7 维信号堆叠面积图
-
-> **说明**: 上方数值卡片的 GPRI 总分 = 基线 + 信号。下方信号分解图**只显示实时信号部分**，不含静态基线。两者的差值恒等于该 Region 的基线分（标题中的 `BL:xx`）。
+- **3 个信号分解图**: 展示 Top 3 风险 Region 的 7 维信号堆叠面积图
 
 ## 关键设计决策
 

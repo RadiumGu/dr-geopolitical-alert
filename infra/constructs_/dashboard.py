@@ -81,13 +81,13 @@ class DashboardConstruct(Construct):
                 )
             )
 
-        # --- Per-region signal class breakdown (A-G) ---
+        # --- Per-region signal class breakdown (A-G) — bar chart view ---
         signal_svw_widgets = []
         for r in regions_sorted:
             signal_svw_widgets.append(
-                cloudwatch.SingleValueWidget(
+                cloudwatch.GraphWidget(
                     title=f"{r.code} Signals A-G",
-                    metrics=[
+                    left=[
                         cloudwatch.Metric(
                             namespace=NS,
                             metric_name="SignalScore",
@@ -98,9 +98,9 @@ class DashboardConstruct(Construct):
                         )
                         for cls, label in signal_classes
                     ],
-                    sparkline=False,
+                    view=cloudwatch.GraphWidgetView.BAR,
                     width=4,
-                    height=3,
+                    height=4,
                 )
             )
 
@@ -172,12 +172,13 @@ class DashboardConstruct(Construct):
                 # Header row
                 [cloudwatch.TextWidget(
                     markdown=(
-                        "# 🌍 DR Geopolitical Risk Index (GPRI) — 34 Regions\n"
+                        "# 🌍 DR Geopolitical Risk Index (GPRI) — 34 Regions\n\n"
                         + "GPRI Total = Baseline (BL) + Real-Time Signals (A-G) &nbsp;|&nbsp; "
-                        + "⚫ BLACK(86-100) | 🔴 RED(71-85) | 🟠 ORANGE(51-70) | 🟡 YELLOW(31-50) | 🟢 GREEN(0-30)"
+                        + "⚫ BLACK(86-100) | 🔴 RED(71-85) | 🟠 ORANGE(51-70) | 🟡 YELLOW(31-50) | 🟢 GREEN(0-30)\n\n"
+                        + "Signals: **A** Conflict | **B** Cyber | **C** Political | **D** Infra | **E** Weather | **F** Compliance | **G** BGP"
                     ),
                     width=24,
-                    height=2,
+                    height=3,
                 )],
                 *region_rows,
                 [timeline],
